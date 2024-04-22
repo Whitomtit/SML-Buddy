@@ -1,0 +1,21 @@
+{
+  "name": "sml-buddy",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "heap-js": "^2.5.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-sml": "github:Whitomtit/tree-sitter-sml"
+  }
+}

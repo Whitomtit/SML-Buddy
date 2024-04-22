@@ -1,0 +1,12 @@
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+
+# Node.js
+node_modules
+
+# Compiled Typescript
+src/**/*.js
+src/**/*.js.map

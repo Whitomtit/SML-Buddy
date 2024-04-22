@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2020",
+    "sourceMap": true
+  },
+  "include": [
+    "src/**/*",
+    "../../AppData/Local/JetBrains/WebStorm2024.1/javascript/typings/node/20.12.7/node_modules/@types/node/globals.d.ts"
+  ]
+}
