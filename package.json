@@ -16,6 +16,7 @@
   "dependencies": {
     "heap-js": "^2.5.0",
     "tree-sitter": "^0.21.1",
-    "tree-sitter-sml": "github:Whitomtit/tree-sitter-sml"
+    "tree-sitter-sml": "github:Whitomtit/tree-sitter-sml",
+    "z3-solver": "^4.13.0"
   }
 }

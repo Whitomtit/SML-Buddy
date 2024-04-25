@@ -5,8 +5,8 @@ import {
     ConstructorNode,
     FunctionNode,
     HoleNode,
-    IntegerNode,
-    StringNode,
+    IntegerSymbolNode,
+    StringSymbolNode,
     SymbolicNode,
     VariableNode
 } from "../models/symbolic_nodes";
@@ -27,7 +27,7 @@ export const Generator = (testCase: SymbolicNode,
     if (testCase instanceof HoleNode) {
         tryMerge((substitution) => {
             testCase.type.mergeWith(PrimitiveType.INT, substitution)
-            minHeap.push(new IntegerNode())
+            minHeap.push(new IntegerSymbolNode())
 
             if (testCase.env.size === 0) return
 
@@ -40,7 +40,7 @@ export const Generator = (testCase: SymbolicNode,
         }, testCase)
         tryMerge((substitution) => {
             testCase.type.mergeWith(PrimitiveType.STRING, substitution)
-            minHeap.push(new StringNode())
+            minHeap.push(new StringSymbolNode())
 
             if (testCase.env.size === 0) return
 

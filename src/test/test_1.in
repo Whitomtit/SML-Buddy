@@ -1,0 +1,28 @@
+datatype formula =
+  TRUE
+  | FALSE
+  | NOT of formula
+  | ANDALSO of formula * formula
+  | ORELSE of formula * formula
+  | IMPLY of formula * formula
+  | LESS of expr * expr
+and expr =
+  NUM of int
+  | PLUS of expr * expr
+  | MINUS of expr * expr;
+
+fun exp_eval (NUM n) = n
+  | exp_eval (PLUS (e1, e2)) = (exp_eval e1) + (exp_eval e2)
+  | exp_eval (MINUS (e1, e2)) = (exp_eval e1) - (exp_eval e2);
+
+fun eval TRUE = true
+  | eval FALSE = false
+  | eval (NOT f) = not (eval f)
+  | eval (ANDALSO (f1, f2)) = (eval f1) andalso (eval f2)
+  | eval (ORELSE (f1, f2)) = (eval f1) orelse (eval f2)
+  | eval (IMPLY (f1, f2)) = (not (eval f1)) orelse (eval f2)
+  | eval (LESS (e1, e2)) = (exp_eval e1) < (exp_eval e2);
+
+
+fun f NIL = 1
+  | f (x::xs) = x * f xs;

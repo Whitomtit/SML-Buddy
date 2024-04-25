@@ -1,17 +1,19 @@
 import Parser from "tree-sitter";
-import {DATATYPE_DECLARATION, DECLARATIONS} from "./const";
-import {parseDatatypeDeclaration} from "./datatype";
+import {DECLARATIONS, REC} from "./const";
+import {SymbolicNode} from "../models/symbolic_nodes";
 import {Constructors} from "./program";
-import {FunctionType} from "../models/types";
 
-export const parseDeclaration = (node: Parser.SyntaxNode): Constructors => {
-    switch (node.type) {
-        case DATATYPE_DECLARATION:
-            return parseDatatypeDeclaration(node)
-        default:
-            console.log("Declaration not implemented: " + node.type + " || " + node.text)
-            return new Map<string, FunctionType>()
+export const parseValueDeclaration = (node: Parser.SyntaxNode,
+                                      env: Map<string, SymbolicNode>, constructors: Constructors) => {
+    if (node.children.map(n => n.type).includes(REC)) {
+        // TODO handle rec function
     }
+
+
+}
+
+const parseValueBind = (node: Parser.SyntaxNode, env: Map<string, SymbolicNode>, constructors: Constructors) => {
+    // TODO implement
 }
 
 export const isDeclaration = (node: Parser.SyntaxNode) => {
