@@ -18,7 +18,7 @@ export const parseFunctionDeclaration = (node: Parser.SyntaxNode, env: Environme
 
 const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings => {
     //TODO support for infix function declarations
-    const clauses = node.children.filter((child) => child.type === CLAUSE).map(parseClause)
+    const clauses = node.children.filter((child) => child.type === CLAUSE).map((child) => parseClause(child, env))
     // drop function name
     const namePattern = clauses[0].patterns[0]
     clauses.forEach((clause) => clause.patterns.shift())
@@ -33,8 +33,8 @@ const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings 
     return nameBind
 }
 
-const parseClause = (node: Parser.SyntaxNode): Clause => {
-    const patterns = node.children.filter(isPattern).map(parsePattern)
+const parseClause = (node: Parser.SyntaxNode, env: Environment): Clause => {
+    const patterns = node.children.filter(isPattern).map((child) => parsePattern(child, env))
     const body = parseExpression(node.lastChild)
     return {patterns, body, subBindings: new Map()}
 }

@@ -1,6 +1,6 @@
 import {PolymorphicType, Type} from "./types";
-import {Pattern} from "../parsers/pattern";
-import {Bindings, Environment} from "../parsers/program";
+import {Pattern, tryMatch} from "../parsers/pattern";
+import {Bindings, Environment, getTupleConstructorName} from "../parsers/program";
 
 export interface SymbolicNode {
     size(): number;
@@ -8,6 +8,12 @@ export interface SymbolicNode {
     toString(): string;
 
     holesNumber(): number;
+
+    evaluate(env: Environment): SymbolicNode;
+}
+
+export interface ApplicableNode {
+    apply(argument: SymbolicNode): SymbolicNode;
 }
 
 export type Binop = '+' | '-' | '*' | 'div' | 'mod';
@@ -31,6 +37,10 @@ export class IntegerNode implements SymbolicNode {
     holesNumber(): number {
         return 0;
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        return this;
+    }
 }
 
 export class StringNode implements SymbolicNode {
@@ -50,6 +60,10 @@ export class StringNode implements SymbolicNode {
 
     holesNumber(): number {
         return 0;
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        return this;
     }
 }
 
@@ -73,8 +87,21 @@ export class VariableNode implements SymbolicNode {
     holesNumber(): number {
         return 0;
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        const constructor = env.constructors.get(this.name)
+        if (constructor) {
+            if (constructor.argType) return new ConstructorNode([], this.name)
+            return new BuiltInFunctionNode((args) =>
+                new ConstructorNode([args], this.name))
+        }
+        const value = env.bindings.get(this.name)
+        if (!value) throw new Error(`Variable ${this.name} not found in environment`)
+        return value
+    }
 }
 
+// TODO deprecated
 export class BinopNode implements SymbolicNode {
     readonly op: Binop;
     readonly left: SymbolicNode;
@@ -97,8 +124,13 @@ export class BinopNode implements SymbolicNode {
     holesNumber(): number {
         return this.left.holesNumber() + this.right.holesNumber();
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Method not implemented.");
+    }
 }
 
+// TODO deprecated
 export class ConcatNode implements SymbolicNode {
     readonly left: SymbolicNode;
     readonly right: SymbolicNode;
@@ -119,6 +151,10 @@ export class ConcatNode implements SymbolicNode {
     holesNumber(): number {
         return this.left.holesNumber() + this.right.holesNumber();
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Method not implemented.");
+    }
 }
 
 export class ApplicationNode implements SymbolicNode {
@@ -134,6 +170,81 @@ export class ApplicationNode implements SymbolicNode {
 
     size(): number {
         return 0;
+    }
+
+    isInfix(node: SymbolicNode, env: Environment): boolean {
+        return node instanceof VariableNode && !node.opped && env.infixData.has(node.name)
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        const inputStack = [...this.nodes].reverse()
+        const workStack: SymbolicNode[] = []
+
+        // always have at least one node in input stack for lookahead
+        while (inputStack.length !== 0) {
+            const node = inputStack.pop()
+            const lookahead = inputStack[inputStack.length - 1]
+
+            // push infix to work stack if no reduce
+            if (this.isInfix(node, env)) {
+                if (workStack.length >= 3) {
+                    const leftInfix = env.infixData.get((<VariableNode>workStack[workStack.length - 2]).name)
+                    const rightInfix = env.infixData.get((<VariableNode>node).name)
+
+                    if (leftInfix.precedence > rightInfix.precedence ||
+                        (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
+                        const rightArg = workStack.pop()
+                        const func = <ApplicableNode><unknown>workStack.pop().evaluate(env)
+                        const leftArg = workStack.pop()
+                        workStack.push(func.apply(new ConstructorNode([leftArg, rightArg], getTupleConstructorName(2))))
+                        // return input
+                        inputStack.push(node)
+                        continue
+                    }
+                }
+                workStack.push(node)
+                continue
+            }
+
+            // if work stack is empty just evaluate
+            if (workStack.length === 0) {
+                workStack.push(node.evaluate(env))
+                continue
+            }
+
+            const workTop = workStack[workStack.length - 1]
+            // if previous node is not infix, it's applicable and has higher precedence than infix
+            if (!this.isInfix(workTop, env)) {
+                const func = <ApplicableNode><unknown>workStack.pop()
+                workStack.push(func.apply(node.evaluate(env)))
+                continue
+            }
+            // if previous node is infix and the next node is not, we skip
+            if (!this.isInfix(lookahead, env)) {
+                workStack.push(node.evaluate(env))
+                continue
+            }
+            // both lookahead and work top are infix, thus compare precedence
+            const leftInfix = env.infixData.get((<VariableNode>workTop).name)
+            const rightInfix = env.infixData.get((<VariableNode>lookahead).name)
+
+            if (leftInfix.precedence > rightInfix.precedence ||
+                (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
+                const func = <ApplicableNode><unknown>workStack.pop().evaluate(env)
+                const leftArg = workStack.pop()
+                const rightArg = node.evaluate(env)
+                workStack.push(func.apply(new ConstructorNode([leftArg, rightArg], getTupleConstructorName(2))))
+                continue
+            }
+            workStack.push(node.evaluate(env))
+        }
+        while (workStack.length > 1) {
+            const rightArg = workStack.pop()
+            const func = <ApplicableNode><unknown>workStack.pop().evaluate(env)
+            const leftArg = workStack.pop()
+            workStack.push(func.apply(new ConstructorNode([leftArg, rightArg], getTupleConstructorName(2))))
+        }
+        return workStack[0]
     }
 }
 
@@ -159,6 +270,10 @@ export class ConstructorNode implements SymbolicNode {
     holesNumber(): number {
         return this.args.reduce((acc, arg) => acc + arg.holesNumber(), 0);
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        return new ConstructorNode(this.args.map(arg => arg.evaluate(env)), this.name)
+    }
 }
 
 export type Clause = {
@@ -167,7 +282,7 @@ export type Clause = {
     subBindings: Bindings
 }
 
-export class FunctionNode implements SymbolicNode {
+export class FunctionNode implements SymbolicNode, ApplicableNode {
     readonly clauses: Clause[];
     readonly closure: Environment;
 
@@ -184,8 +299,82 @@ export class FunctionNode implements SymbolicNode {
         return this.clauses.reduce((acc, clause) => acc + clause.body.holesNumber(), 0);
     }
 
+    apply(argument: SymbolicNode): SymbolicNode {
+        if (this.clauses[0].patterns.length === 1) {
+            for (const clause of this.clauses) {
+                const parameterBind = tryMatch(() => clause.patterns[0](argument))
+                if (parameterBind !== null) {
+                    const env: Environment = {
+                        bindings: new Map([...this.closure.bindings, ...clause.subBindings, ...parameterBind]),
+                        constructors: this.closure.constructors,
+                        infixData: this.closure.infixData
+                    }
+                    return clause.body.evaluate(env)
+                }
+            }
+            throw new Error("Pattern match not exhaustive")
+        }
+
+        let newClauses: Clause[] = []
+        for (const clause of this.clauses) {
+            const parameterBind = tryMatch(() => clause.patterns[0](argument))
+            if (parameterBind !== null) {
+                newClauses.push({
+                    patterns: clause.patterns.slice(1),
+                    body: clause.body,
+                    subBindings: new Map([...clause.subBindings, ...parameterBind])
+                })
+            }
+        }
+        if (newClauses.length === 0) throw new Error("Pattern match not exhaustive")
+        return new FunctionNode(newClauses, this.closure)
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Method not implemented.");
+    }
 }
 
+export class BuiltInFunctionNode implements SymbolicNode, ApplicableNode {
+    readonly func: (args: SymbolicNode) => SymbolicNode;
+
+    constructor(func: (args: SymbolicNode) => SymbolicNode) {
+        this.func = func;
+    }
+
+    size(): number {
+        return 1;
+    }
+
+    holesNumber(): number {
+        return 0;
+    }
+
+    apply(argument: SymbolicNode): SymbolicNode {
+        return this.func(argument)
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Unexpected evaluation of built-in function")
+    }
+}
+
+export class BuiltInBinopNode extends BuiltInFunctionNode {
+    constructor(func: (a: number, b: number) => number) {
+        super((node) => {
+            if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
+                throw new Error("Expected tuple with two elements")
+            }
+            const [a, b] = node.args
+            if (!(a instanceof IntegerNode) || !(b instanceof IntegerNode)) {
+                throw new Error("Expected two integers")
+            }
+            return new IntegerNode(func(a.value, b.value))
+        });
+    }
+}
+
+// TODO deprecated
 export class TestFunctionNode implements SymbolicNode {
     private static argCount = 0;
 
@@ -212,6 +401,10 @@ export class TestFunctionNode implements SymbolicNode {
     holesNumber(): number {
         return this.body.holesNumber();
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Method not implemented.");
+    }
 }
 
 export class PatternMatchNode implements SymbolicNode {
@@ -227,6 +420,10 @@ export class PatternMatchNode implements SymbolicNode {
 
     size(): number {
         return 0;
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Method not implemented.");
     }
 }
 
@@ -252,6 +449,10 @@ export class HoleNode implements SymbolicNode {
     holesNumber(): number {
         return 1;
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Not supposed to happen");
+    }
 }
 
 export class IntegerSymbolNode implements SymbolicNode {
@@ -266,6 +467,10 @@ export class IntegerSymbolNode implements SymbolicNode {
     holesNumber(): number {
         return 0;
     }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Not supposed to happen");
+    }
 }
 
 export class StringSymbolNode implements SymbolicNode {
@@ -279,5 +484,9 @@ export class StringSymbolNode implements SymbolicNode {
 
     holesNumber(): number {
         return 0;
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new Error("Not supposed to happen");
     }
 }

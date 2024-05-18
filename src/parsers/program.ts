@@ -1,8 +1,8 @@
 import Parser from "tree-sitter";
 import {isDeclaration, parseFunctionDeclaration} from "./declaration";
 import SML from "tree-sitter-sml";
-import {FunctionType, PolymorphicType, TupleType} from "../models/types";
-import {SymbolicNode} from "../models/symbolic_nodes";
+import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
+import {BuiltInBinopNode, SymbolicNode} from "../models/symbolic_nodes";
 import {DATATYPE_DECLARATION, FUNCTION_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 
@@ -26,6 +26,8 @@ const a = new PolymorphicType()
 const b = new PolymorphicType()
 const c = new PolymorphicType()
 
+const list = new PrimitiveType("list")
+
 export const parseProgram = (program: string): Environment => {
     const parser = new Parser();
     parser.setLanguage(SML);
@@ -34,11 +36,19 @@ export const parseProgram = (program: string): Environment => {
 
     traverse(parseTree.rootNode)
 
-    const initialBindings: Bindings = new Map<string, SymbolicNode>()
+    const initialBindings: Bindings = new Map<string, SymbolicNode>([
+        ["+", new BuiltInBinopNode((a, b) => a + b)],
+        ["-", new BuiltInBinopNode((a, b) => a - b)],
+        ["*", new BuiltInBinopNode((a, b) => a * b)],
+        ["div", new BuiltInBinopNode((a, b) => Math.floor(a / b))],
+        ["mod", new BuiltInBinopNode((a, b) => a % b)],
+    ])
     const initialConstructors: Constructors = new Map<string, FunctionType>([
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],
         [getTupleConstructorName(2), new FunctionType(new TupleType([a, b]), new TupleType([a, b]))],
-        [getTupleConstructorName(3), new FunctionType(new TupleType([a, b, c]), new TupleType([a, b, c]))]
+        [getTupleConstructorName(3), new FunctionType(new TupleType([a, b, c]), new TupleType([a, b, c]))],
+        ['::', new FunctionType(new TupleType([a, new CompoundType(a, list)]), new CompoundType(a, list))],
+        ['NIL', new FunctionType(new TupleType([]), new CompoundType(a, list))],
     ])
     const initialInfixData: InfixData = new Map<string, Infix>([
         ["*", {infix: "Left", precedence: 7}],

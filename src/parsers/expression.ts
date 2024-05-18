@@ -4,21 +4,18 @@ import {
     APP_EXPRESSION,
     CONSTANT_EXPRESSION,
     EXPRESSIONS,
-    FN_EXPRESSION,
     OP_EXPRESSION,
     RECORD_UNIT_EXPRESSION,
+    SEQUENCE_EXPRESSION,
     TUPLE_EXPRESSION,
     TUPLE_UNIT_EXPRESSION,
     VAR_EXPRESSION
 } from "./const";
-import {parseMatch} from "./pattern";
 import {parseConstant} from "./constant";
 import {getTupleConstructorName} from "./program";
 
 export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
     switch (node.type) {
-        case FN_EXPRESSION:
-            return parseMatch(node.lastChild)
         case APP_EXPRESSION:
             return new ApplicationNode(node.children.map(parseExpression))
         case VAR_EXPRESSION:
@@ -32,6 +29,14 @@ export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
         case TUPLE_EXPRESSION:
             const subExpressions = node.children.filter(isExpression).map(parseExpression)
             return new ConstructorNode(subExpressions, getTupleConstructorName(subExpressions.length))
+        case SEQUENCE_EXPRESSION:
+            const seqExpressions = node.children.filter(isExpression).map(parseExpression)
+            if (seqExpressions.length === 1)
+                return seqExpressions[0]
+            // TODO support real sequence expressions
+            throw new Error("Unsupported sequence expression")
+        default:
+            throw new Error("Expression not implemented: " + node.type + " || " + node.text)
     }
 }
 

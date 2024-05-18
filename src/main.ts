@@ -1,7 +1,7 @@
 import Heap from "heap-js";
 import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "./models/types";
-import {HoleNode, SymbolicNode} from "./models/symbolic_nodes";
-import {parseProgram} from "./parsers/program";
+import {ConstructorNode, FunctionNode, HoleNode, IntegerNode, SymbolicNode} from "./models/symbolic_nodes";
+import {getTupleConstructorName, parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
 
 const main = async () => {
@@ -18,9 +18,26 @@ const main = async () => {
         console.log(key, value.toString())
     })
 
-    env.bindings.forEach((value, key) => {
-        console.log(key, value.toString())
-    })
+    const exp_eval = <FunctionNode>env.bindings.get("exp_eval")
+    const res = exp_eval.apply(new ConstructorNode([
+            new ConstructorNode([
+                    new ConstructorNode([new IntegerNode(5)], "NUM"),
+                    new ConstructorNode([new IntegerNode(10)], "NUM")],
+                getTupleConstructorName(2))],
+        "PLUS"))
+    console.log(res.toString())
+
+    const f = <FunctionNode>env.bindings.get("f")
+    const res2 = f.apply(new ConstructorNode([], "NIL"))
+    console.log(res2.toString())
+
+    const res3 = f.apply(new ConstructorNode([
+        new ConstructorNode([
+            new IntegerNode(5),
+            new ConstructorNode([], "NIL")
+        ], getTupleConstructorName(2))
+    ], "::"))
+    console.log(res3.toString())
 
 
     // const { Context } = await init();

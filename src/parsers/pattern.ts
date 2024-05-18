@@ -1,5 +1,5 @@
 import Parser from "tree-sitter";
-import {Bindings, getTupleConstructorName} from "./program";
+import {Bindings, Environment, getTupleConstructorName} from "./program";
 import {
     ConstructorNode,
     IntegerNode,
@@ -28,22 +28,22 @@ import {parseExpression} from "./expression";
 
 export type Pattern = (SymbolicNode) => Bindings
 
-export const parseMatch = (node: Parser.SyntaxNode): PatternMatchNode => {
+export const parseMatch = (node: Parser.SyntaxNode, env: Environment): PatternMatchNode => {
     const cases = node.children
-        .filter(child => child.type === CASE).map(parseRule)
+        .filter(child => child.type === CASE).map(child => parseRule(child, env))
     return new PatternMatchNode(cases)
 }
 
-const parseRule = (node: Parser.SyntaxNode): { pattern: Pattern, body: SymbolicNode } => {
-    const pattern = parsePattern(node.children[0])
+const parseRule = (node: Parser.SyntaxNode, env: Environment): { pattern: Pattern, body: SymbolicNode } => {
+    const pattern = parsePattern(node.children[0], env)
     const body = parseExpression(node.children[2])
     return {pattern, body}
 }
 
-export const parsePattern = (node: Parser.SyntaxNode): Pattern => {
+export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern => {
     switch (node.type) {
         case APP_PATTERN:
-            const subPatternsApp = node.children.filter(isPattern).map(parsePattern)
+            const subPatternsApp = node.children.filter(isPattern).map((child) => parsePattern(child, env))
             if (subPatternsApp.length === 1) {
                 // just embedding another pattern
                 return subPatternsApp[0]
@@ -63,24 +63,36 @@ export const parsePattern = (node: Parser.SyntaxNode): Pattern => {
                     if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
                         throw new PatternMatchError()
                     }
+                    // the only child is a tuple constructor
+                    const args = <ConstructorNode>node.args[0]
                     return new Map<string, SymbolicNode>([
-                        ...subPatternsApp[0](node.args[0]),
-                        ...subPatternsApp[2](node.args[1])
+                        ...subPatternsApp[0](args.args[0]),
+                        ...subPatternsApp[2](args.args[1])
                     ])
                 }
             } else {
                 throw new Error("Unsupported number of subpatterns in app pattern: " + subPatternsApp.length)
             }
         case PARENTHESIZED_PATTERN:
-            return parsePattern(node.children[1])
+            return parsePattern(node.children[1], env)
         case VARIABLE_PATTERN:
         case OP_PATTERN:
             const name = node.lastChild.text
+            const constructor = env.constructors.get(name)
+            // zero parameter constructor
+            if (constructor) {
+                return (node: SymbolicNode) => {
+                    if (!(node instanceof ConstructorNode) || node.name !== name) {
+                        throw new PatternMatchError()
+                    }
+                    return new Map<string, SymbolicNode>()
+                }
+            }
             return (node: SymbolicNode) => new Map<string, SymbolicNode>([[name, node]])
         case RECORD_UNIT_PATTERN:
         case TUPLE_UNIT_PATTERN:
         case TUPLE_PATTERN:
-            const subPatterns = node.children.filter(isPattern).map(parsePattern)
+            const subPatterns = node.children.filter(isPattern).map((child) => parsePattern(child, env))
             return (node: SymbolicNode) => {
                 if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(subPatterns.length)) {
                     throw new PatternMatchError()
@@ -92,7 +104,7 @@ export const parsePattern = (node: Parser.SyntaxNode): Pattern => {
                 return env
             }
         case OR_PATTERN:
-            const subPatternsOr = node.children.filter(isPattern).map(parsePattern)
+            const subPatternsOr = node.children.filter(isPattern).map((child) => parsePattern(child, env))
             return (node: SymbolicNode) => {
                 for (const subPattern of subPatternsOr) {
                     const env = tryMatch(() => {
