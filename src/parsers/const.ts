@@ -25,6 +25,9 @@ export const DECLARATIONS = [
 export const DATATYPE_BIND = "db"
 export const CONSTRUCTOR = "constr";
 export const VALUE_BIND = "vb";
+export const FUNCTION_BIND = "fb";
+export const CLAUSE = "clause";
+export const CASE = "case";
 
 export const ALPHANUMERIC = "ident";
 export const SYMBOLIC = "symbolic";
@@ -77,3 +80,51 @@ export const WORD_CONSTANT = "word_constant";
 export const FLOAT_CONSTANT = "float_constant";
 export const CHAR_CONSTANT = "char_constant";
 export const STRING_CONSTANT = "string_constant";
+
+// TODO implement
+export const HANDLE_EXPRESSION = "handle_exp";
+// TODO implement
+export const ORELSE_EXPRESSION = "orelse_exp";
+// TODO implement
+export const ANDALSO_EXPRESSION = "andalso_exp";
+// TODO implement
+export const CONSTRAINT_EXPRESSION = "constraint_exp";
+export const APP_EXPRESSION = "app_exp";
+export const FN_EXPRESSION = "fn_exp";
+// TODO implement
+export const CASE_EXPRESSION = "case_exp";
+// TODO implement
+export const WHILE_EXPRESSION = "while_exp";
+// TODO implement
+export const IF_EXPRESSION = "if_exp";
+// TODO implement
+export const RAISE_EXPRESSION = "raise_exp";
+
+export const VAR_EXPRESSION = "var_exp";
+export const OP_EXPRESSION = "op_exp";
+// TODO implement
+export const ACCESS_EXPRESSION = "access_exp";
+export const CONSTANT_EXPRESSION = "constant_exp";
+// TODO implement
+export const SELECTOR_EXPRESSION = "selector_exp";
+// TODO implement
+export const RECORD_EXPRESSION = "rec_exp";
+export const RECORD_UNIT_EXPRESSION = "rec_unit_exp";
+export const TUPLE_UNIT_EXPRESSION = "tuple_unit_exp";
+// TODO implement
+export const SEQUENCE_EXPRESSION = "seq_exp";
+export const TUPLE_EXPRESSION = "tuple_exp";
+// TODO implement
+export const LIST_EXPRESSION = "list_exp";
+// TODO implement
+export const VECTOR_EXPRESSION = "vector_exp";
+// TODO implement
+export const LET_EXPRESSION = "let_exp";
+
+export const EXPRESSIONS = [
+    HANDLE_EXPRESSION, ORELSE_EXPRESSION, ANDALSO_EXPRESSION, CONSTRAINT_EXPRESSION, APP_EXPRESSION,
+    FN_EXPRESSION, CASE_EXPRESSION, WHILE_EXPRESSION, IF_EXPRESSION, RAISE_EXPRESSION,
+    VAR_EXPRESSION, OP_EXPRESSION, ACCESS_EXPRESSION, CONSTANT_EXPRESSION, SELECTOR_EXPRESSION,
+    RECORD_EXPRESSION, RECORD_UNIT_EXPRESSION, TUPLE_UNIT_EXPRESSION, SEQUENCE_EXPRESSION,
+    TUPLE_EXPRESSION, LIST_EXPRESSION, VECTOR_EXPRESSION, LET_EXPRESSION
+]

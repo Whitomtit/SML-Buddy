@@ -12,12 +12,16 @@ const main = async () => {
 
     const program = await fs.readFile("test/test_1.in", "utf-8")
 
-    const constructors =
-        parseProgram(program)
+    const env = parseProgram(program)
 
-    constructors.forEach((value, key) => {
+    env.constructors.forEach((value, key) => {
         console.log(key, value.toString())
     })
+
+    env.bindings.forEach((value, key) => {
+        console.log(key, value.toString())
+    })
+
 
     // const { Context } = await init();
     // const { Solver, Int, And } = Context('main');

@@ -1,15 +1,17 @@
 import Parser from "tree-sitter";
-import {Environment, tupleConstructorName} from "./program";
+import {Bindings, getTupleConstructorName} from "./program";
 import {
     ConstructorNode,
     IntegerNode,
     IntegerSymbolNode,
+    PatternMatchNode,
     StringNode,
     StringSymbolNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
 import {
     APP_PATTERN,
+    CASE,
     CONSTANT_PATTERN,
     OP_PATTERN,
     OR_PATTERN,
@@ -22,26 +24,20 @@ import {
     WILD_PATTERN
 } from "./const";
 import {parseConstant} from "./constant";
+import {parseExpression} from "./expression";
 
-type Pattern = (SymbolicNode) => Environment
+export type Pattern = (SymbolicNode) => Bindings
 
-export const isPattern = (node: Parser.SyntaxNode): boolean => {
-    return PATTERNS.includes(node.type)
+export const parseMatch = (node: Parser.SyntaxNode): PatternMatchNode => {
+    const cases = node.children
+        .filter(child => child.type === CASE).map(parseRule)
+    return new PatternMatchNode(cases)
 }
 
-export const tryMatch = (f: () => Environment): Environment | null => {
-    try {
-        return f()
-    } catch (error) {
-        if (error instanceof PatternMatchError) return null
-        throw error
-    }
-}
-
-export class PatternMatchError extends Error {
-    constructor() {
-        super("Pattern match error")
-    }
+const parseRule = (node: Parser.SyntaxNode): { pattern: Pattern, body: SymbolicNode } => {
+    const pattern = parsePattern(node.children[0])
+    const body = parseExpression(node.children[2])
+    return {pattern, body}
 }
 
 export const parsePattern = (node: Parser.SyntaxNode): Pattern => {
@@ -86,7 +82,7 @@ export const parsePattern = (node: Parser.SyntaxNode): Pattern => {
         case TUPLE_PATTERN:
             const subPatterns = node.children.filter(isPattern).map(parsePattern)
             return (node: SymbolicNode) => {
-                if (!(node instanceof ConstructorNode) || node.name !== tupleConstructorName(subPatterns.length)) {
+                if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(subPatterns.length)) {
                     throw new PatternMatchError()
                 }
                 let env = new Map<string, SymbolicNode>()
@@ -140,4 +136,23 @@ export const parsePattern = (node: Parser.SyntaxNode): Pattern => {
             throw new Error(`Unknown pattern type: ${node.type}`)
     }
 
+}
+
+export const isPattern = (node: Parser.SyntaxNode): boolean => {
+    return PATTERNS.includes(node.type)
+}
+
+export const tryMatch = (f: () => Bindings): Bindings | null => {
+    try {
+        return f()
+    } catch (error) {
+        if (error instanceof PatternMatchError) return null
+        throw error
+    }
+}
+
+export class PatternMatchError extends Error {
+    constructor() {
+        super("Pattern match error")
+    }
 }

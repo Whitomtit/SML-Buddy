@@ -1,4 +1,6 @@
 import {PolymorphicType, Type} from "./types";
+import {Pattern} from "../parsers/pattern";
+import {Bindings, Environment} from "../parsers/program";
 
 export interface SymbolicNode {
     size(): number;
@@ -53,9 +55,11 @@ export class StringNode implements SymbolicNode {
 
 export class VariableNode implements SymbolicNode {
     readonly name: string
+    readonly opped: boolean
 
-    constructor(name: string) {
+    constructor(name: string, opped: boolean = false) {
         this.name = name
+        this.opped = opped
     }
 
     size(): number {
@@ -117,13 +121,19 @@ export class ConcatNode implements SymbolicNode {
     }
 }
 
-export class FunctionApplicationNode {
-    readonly fn: SymbolicNode;
-    readonly arg: SymbolicNode;
+export class ApplicationNode implements SymbolicNode {
+    readonly nodes: SymbolicNode[];
 
-    constructor(fn: SymbolicNode, arg: SymbolicNode) {
-        this.fn = fn
-        this.arg = arg
+    constructor(nodes: SymbolicNode[]) {
+        this.nodes = nodes
+    }
+
+    holesNumber(): number {
+        return 0;
+    }
+
+    size(): number {
+        return 0;
     }
 }
 
@@ -151,14 +161,39 @@ export class ConstructorNode implements SymbolicNode {
     }
 }
 
+export type Clause = {
+    patterns: Pattern[],
+    body: SymbolicNode,
+    subBindings: Bindings
+}
+
 export class FunctionNode implements SymbolicNode {
+    readonly clauses: Clause[];
+    readonly closure: Environment;
+
+    constructor(clauses: Clause[], closure: Environment) {
+        this.clauses = clauses
+        this.closure = closure
+    }
+
+    size(): number {
+        return 1 + this.clauses.reduce((acc, clause) => acc + clause.body.size(), 0);
+    }
+
+    holesNumber(): number {
+        return this.clauses.reduce((acc, clause) => acc + clause.body.holesNumber(), 0);
+    }
+
+}
+
+export class TestFunctionNode implements SymbolicNode {
     private static argCount = 0;
 
     readonly argName: string;
     readonly body: SymbolicNode;
 
     static freshArgName() {
-        return 'arg' + FunctionNode.argCount++;
+        return 'arg' + TestFunctionNode.argCount++;
     }
 
     constructor(argName: string, body: SymbolicNode) {
@@ -179,44 +214,19 @@ export class FunctionNode implements SymbolicNode {
     }
 }
 
-export class LetNode {
-    readonly varName: string;
-    readonly value: SymbolicNode;
-    readonly body: SymbolicNode;
+export class PatternMatchNode implements SymbolicNode {
+    readonly cases: { pattern: Pattern, body: SymbolicNode }[];
 
-    constructor(varName: string, value: SymbolicNode, body: SymbolicNode) {
-        this.varName = varName
-        this.value = value
-        this.body = body
-    }
-}
-
-export class RecursiveFunctionNode extends FunctionNode {
-    readonly functionName: string;
-
-    constructor(functionName: string, argName: string, body: SymbolicNode) {
-        super(argName, body)
-        this.functionName = functionName
-    }
-}
-
-export class PatternMatchNode {
-    readonly value: SymbolicNode;
-    readonly cases: { pattern: SymbolicNode, body: SymbolicNode }[];
-
-    constructor(value: SymbolicNode, cases: { pattern: SymbolicNode, body: SymbolicNode }[]) {
-        this.value = value
+    constructor(cases: { pattern: Pattern, body: SymbolicNode }[]) {
         this.cases = cases
     }
-}
 
-export class PatternNode {
-    readonly name: string;
-    readonly args: string[];
+    holesNumber(): number {
+        return 0;
+    }
 
-    constructor(name: string, args: string[]) {
-        this.name = name
-        this.args = args
+    size(): number {
+        return 0;
     }
 }
 

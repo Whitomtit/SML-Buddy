@@ -55,6 +55,10 @@ export class TupleType implements Type {
 
     constructor(elementTypes: Type[]) {
         this.elementTypes = elementTypes;
+        if (elementTypes.length === 1) {
+            // TODO sanity check
+            throw new Error("One element is not a tuple");
+        }
     }
 
     mergeWith(other: Type, substitution: Map<PolymorphicType, Type>) {
@@ -69,7 +73,7 @@ export class TupleType implements Type {
             if (this.elementTypes.length !== other.elementTypes.length) {
                 throw new MergeError();
             }
-            this.elementTypes.forEach((t, i) => t.mergeWith(other.elementTypes[i], substitution));
+            other.elementTypes.forEach((t, i) => t.mergeWith(this.elementTypes[i], substitution));
             return;
         }
         throw new MergeError();

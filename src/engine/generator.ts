@@ -3,11 +3,11 @@ import {
     BINOPS,
     ConcatNode,
     ConstructorNode,
-    FunctionNode,
     HoleNode,
     IntegerSymbolNode,
     StringSymbolNode,
     SymbolicNode,
+    TestFunctionNode,
     VariableNode
 } from "../models/symbolic_nodes";
 import {AddableContainer, Interception} from "../models/containers";
@@ -25,12 +25,14 @@ export const Generator = (testCase: SymbolicNode,
                           minHeap: AddableContainer<SymbolicNode>,
                           constructors: Map<string, FunctionType>) => {
     if (testCase instanceof HoleNode) {
+        // E-Num
         tryMerge((substitution) => {
             testCase.type.mergeWith(PrimitiveType.INT, substitution)
             minHeap.push(new IntegerSymbolNode())
 
             if (testCase.env.size === 0) return
 
+            // E-Binop
             for (const op of BINOPS) {
                 minHeap.push(new BinopNode(op,
                     new HoleNode(PrimitiveType.INT, testCase.env, substitution),
@@ -38,17 +40,20 @@ export const Generator = (testCase: SymbolicNode,
                 ))
             }
         }, testCase)
+        // E-Str
         tryMerge((substitution) => {
             testCase.type.mergeWith(PrimitiveType.STRING, substitution)
             minHeap.push(new StringSymbolNode())
 
             if (testCase.env.size === 0) return
 
+            // E-Concat
             minHeap.push(new ConcatNode(
                 new HoleNode(PrimitiveType.STRING, testCase.env, substitution),
                 new HoleNode(PrimitiveType.STRING, testCase.env, substitution)
             ))
         }, testCase)
+        // E-Cnstr
         for (const [consName, consType] of constructors) {
             tryMerge((substitution) => {
                 const freshType = consType.clone(new Map())
@@ -65,16 +70,18 @@ export const Generator = (testCase: SymbolicNode,
             }, testCase)
         }
 
+        // E-Fun
         tryMerge((substitution) => {
             const freshType = new FunctionType(new PolymorphicType(), new PolymorphicType())
             testCase.type.mergeWith(freshType, substitution)
-            const argName = FunctionNode.freshArgName()
+            const argName = TestFunctionNode.freshArgName()
             minHeap.push(
-                new FunctionNode(argName,
+                new TestFunctionNode(argName,
                     new HoleNode(freshType.returnType, new Map([...testCase.env.entries(), [argName, freshType.argType]]), substitution)
                 ))
         }, testCase)
 
+        // E-Var
         const expandedEnv = new Map(testCase.env)
         for (let [varName, varType] of testCase.env) {
             varType = substitute(varType, testCase.substitution)
@@ -102,10 +109,10 @@ export const Generator = (testCase: SymbolicNode,
                 }), constructors)
             break
         }
-    } else if (testCase instanceof FunctionNode) {
+    } else if (testCase instanceof TestFunctionNode) {
         Generator(testCase.body,
             new Interception(minHeap,
-                (node) => new FunctionNode(testCase.argName, node)),
+                (node) => new TestFunctionNode(testCase.argName, node)),
             constructors
         )
     } else if (testCase instanceof BinopNode) {
