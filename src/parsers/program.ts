@@ -48,7 +48,7 @@ export const parseProgram = (program: string): Environment => {
         [getTupleConstructorName(2), new FunctionType(new TupleType([a, b]), new TupleType([a, b]))],
         [getTupleConstructorName(3), new FunctionType(new TupleType([a, b, c]), new TupleType([a, b, c]))],
         ['::', new FunctionType(new TupleType([a, new CompoundType(a, list)]), new CompoundType(a, list))],
-        ['NIL', new FunctionType(new TupleType([]), new CompoundType(a, list))],
+        ['nil', new FunctionType(new TupleType([]), new CompoundType(a, list))],
     ])
     const initialInfixData: InfixData = new Map<string, Infix>([
         ["*", {infix: "Left", precedence: 7}],

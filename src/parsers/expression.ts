@@ -1,4 +1,4 @@
-import {ApplicationNode, ConstructorNode, SymbolicNode, VariableNode} from "../models/symbolic_nodes";
+import {ApplicationNode, ConstructorNode, IdentifierNode, SymbolicNode} from "../models/symbolic_nodes";
 import Parser from "tree-sitter";
 import {
     APP_EXPRESSION,
@@ -19,9 +19,9 @@ export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
         case APP_EXPRESSION:
             return new ApplicationNode(node.children.map(parseExpression))
         case VAR_EXPRESSION:
-            return new VariableNode(node.text)
+            return new IdentifierNode(node.text)
         case OP_EXPRESSION:
-            return new VariableNode(node.lastChild.text, true)
+            return new IdentifierNode(node.lastChild.text, true)
         case CONSTANT_EXPRESSION:
             return parseConstant(node.firstChild)
         case RECORD_UNIT_EXPRESSION:

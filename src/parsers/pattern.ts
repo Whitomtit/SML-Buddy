@@ -134,7 +134,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                         return new Map<string, SymbolicNode>()
                     }
                     if (node instanceof StringSymbolNode) {
-                        // TODO handle special case of integer symbol
+                        // TODO handle special case of string symbol
                         return new Map<string, SymbolicNode>()
                     }
                     throw new PatternMatchError()

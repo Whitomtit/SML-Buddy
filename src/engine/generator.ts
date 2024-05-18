@@ -4,11 +4,11 @@ import {
     ConcatNode,
     ConstructorNode,
     HoleNode,
+    IdentifierNode,
     IntegerSymbolNode,
     StringSymbolNode,
     SymbolicNode,
-    TestFunctionNode,
-    VariableNode
+    TestFunctionNode
 } from "../models/symbolic_nodes";
 import {AddableContainer, Interception} from "../models/containers";
 import {FunctionType, MergeError, PolymorphicType, PrimitiveType, substitute, TupleType, Type} from "../models/types";
@@ -93,7 +93,7 @@ export const Generator = (testCase: SymbolicNode,
         for (const [varName, varType] of expandedEnv) {
             tryMerge((substitution) => {
                 testCase.type.mergeWith(varType, substitution)
-                minHeap.push(new VariableNode(varName))
+                minHeap.push(new IdentifierNode(varName))
             }, testCase)
         }
     } else if (testCase instanceof ConstructorNode) {

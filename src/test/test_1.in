@@ -15,5 +15,12 @@ fun exp_eval (NUM n) = n
   | exp_eval (PLUS (e1, e2)) = (exp_eval e1) + (exp_eval e2)
   | exp_eval (MINUS (e1, e2)) = (exp_eval e1) - (exp_eval e2);
 
-fun f NIL = 1
-  | f (x::xs) = x * f xs;
+fun f final_op nil = final_op ()
+  | f final_op (x::xs) = x * f final_op xs;
+
+fun test 0 = nil
+  | test n = n::(test (n-1));
+
+fun cool_func n () = n;
+
+fun main n = f (cool_func 5) (test n);

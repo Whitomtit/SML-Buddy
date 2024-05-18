@@ -28,17 +28,20 @@ const main = async () => {
     console.log(res.toString())
 
     const f = <FunctionNode>env.bindings.get("f")
-    const res2 = f.apply(new ConstructorNode([], "NIL"))
+    const res2 = f.apply(new ConstructorNode([], "nil"))
     console.log(res2.toString())
 
     const res3 = f.apply(new ConstructorNode([
         new ConstructorNode([
             new IntegerNode(5),
-            new ConstructorNode([], "NIL")
+            new ConstructorNode([], "nil")
         ], getTupleConstructorName(2))
     ], "::"))
     console.log(res3.toString())
 
+    const main = <FunctionNode>env.bindings.get("main")
+    const res4 = main.apply(new IntegerNode(5))
+    console.log(res4.toString())
 
     // const { Context } = await init();
     // const { Solver, Int, And } = Context('main');

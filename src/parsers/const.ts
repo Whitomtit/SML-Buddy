@@ -59,7 +59,7 @@ export const OR_PATTERN = "or_pat";
 export const OP_PATTERN = "op_pat";
 // TODO implement
 export const ACCESS_PATTERN = "access_pat";
-export const CONSTANT_PATTERN = "const_pat";
+export const CONSTANT_PATTERN = "constant_pat";
 export const WILD_PATTERN = "wild_pat";
 // TODO implement
 export const LIST_PATTERN = "list_pat";

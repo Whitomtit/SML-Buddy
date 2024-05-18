@@ -1,4 +1,4 @@
-import {PolymorphicType, Type} from "./types";
+import {PolymorphicType, TupleType, Type} from "./types";
 import {Pattern, tryMatch} from "../parsers/pattern";
 import {Bindings, Environment, getTupleConstructorName} from "../parsers/program";
 
@@ -67,7 +67,7 @@ export class StringNode implements SymbolicNode {
     }
 }
 
-export class VariableNode implements SymbolicNode {
+export class IdentifierNode implements SymbolicNode {
     readonly name: string
     readonly opped: boolean
 
@@ -91,7 +91,9 @@ export class VariableNode implements SymbolicNode {
     evaluate(env: Environment): SymbolicNode {
         const constructor = env.constructors.get(this.name)
         if (constructor) {
-            if (constructor.argType) return new ConstructorNode([], this.name)
+            if (constructor.argType instanceof TupleType && constructor.argType.elementTypes.length === 0) {
+                return new ConstructorNode([], this.name)
+            }
             return new BuiltInFunctionNode((args) =>
                 new ConstructorNode([args], this.name))
         }
@@ -173,7 +175,7 @@ export class ApplicationNode implements SymbolicNode {
     }
 
     isInfix(node: SymbolicNode, env: Environment): boolean {
-        return node instanceof VariableNode && !node.opped && env.infixData.has(node.name)
+        return node instanceof IdentifierNode && !node.opped && env.infixData.has(node.name)
     }
 
     evaluate(env: Environment): SymbolicNode {
@@ -188,8 +190,8 @@ export class ApplicationNode implements SymbolicNode {
             // push infix to work stack if no reduce
             if (this.isInfix(node, env)) {
                 if (workStack.length >= 3) {
-                    const leftInfix = env.infixData.get((<VariableNode>workStack[workStack.length - 2]).name)
-                    const rightInfix = env.infixData.get((<VariableNode>node).name)
+                    const leftInfix = env.infixData.get((<IdentifierNode>workStack[workStack.length - 2]).name)
+                    const rightInfix = env.infixData.get((<IdentifierNode>node).name)
 
                     if (leftInfix.precedence > rightInfix.precedence ||
                         (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
@@ -225,8 +227,8 @@ export class ApplicationNode implements SymbolicNode {
                 continue
             }
             // both lookahead and work top are infix, thus compare precedence
-            const leftInfix = env.infixData.get((<VariableNode>workTop).name)
-            const rightInfix = env.infixData.get((<VariableNode>lookahead).name)
+            const leftInfix = env.infixData.get((<IdentifierNode>workTop).name)
+            const rightInfix = env.infixData.get((<IdentifierNode>lookahead).name)
 
             if (leftInfix.precedence > rightInfix.precedence ||
                 (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
