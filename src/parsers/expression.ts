@@ -13,6 +13,7 @@ import {
 } from "./const";
 import {parseConstant} from "./constant";
 import {getTupleConstructorName} from "./program";
+import {NotImplementedError} from "../models/errors";
 
 export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
     switch (node.type) {
@@ -34,9 +35,9 @@ export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
             if (seqExpressions.length === 1)
                 return seqExpressions[0]
             // TODO support real sequence expressions
-            throw new Error("Unsupported sequence expression")
+            throw new NotImplementedError()
         default:
-            throw new Error("Expression not implemented: " + node.type + " || " + node.text)
+            throw new NotImplementedError("Expression not implemented: " + node.type + " || " + node.text)
     }
 }
 

@@ -9,12 +9,12 @@ export const parseDatatypeDeclaration = (node: Parser.SyntaxNode): Constructors 
     return node.children
         .filter((child) => child.type === DATATYPE_BIND)
         .map(parseDatatypeBind)
-        .reduce((acc, val) => new Map([...acc, ...val]), new Map<string, FunctionType>())
+        .reduce((acc: Constructors, val: Constructors) => new Map([...acc, ...val]), new Map())
 }
 
 const parseDatatypeBind = (node: Parser.SyntaxNode): Constructors => {
     const typeMap = new Map<string, PolymorphicType>()
-    const constructors = new Map<string, FunctionType>();
+    const constructors: Constructors = new Map();
 
     let child = node.firstChild
 

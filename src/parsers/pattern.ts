@@ -4,14 +4,12 @@ import {
     ConstructorNode,
     IntegerNode,
     IntegerSymbolNode,
-    PatternMatchNode,
     StringNode,
     StringSymbolNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
 import {
     APP_PATTERN,
-    CASE,
     CONSTANT_PATTERN,
     OP_PATTERN,
     OR_PATTERN,
@@ -24,21 +22,21 @@ import {
     WILD_PATTERN
 } from "./const";
 import {parseConstant} from "./constant";
-import {parseExpression} from "./expression";
+import {NotImplementedError} from "../models/errors";
 
 export type Pattern = (SymbolicNode) => Bindings
 
-export const parseMatch = (node: Parser.SyntaxNode, env: Environment): PatternMatchNode => {
-    const cases = node.children
-        .filter(child => child.type === CASE).map(child => parseRule(child, env))
-    return new PatternMatchNode(cases)
-}
-
-const parseRule = (node: Parser.SyntaxNode, env: Environment): { pattern: Pattern, body: SymbolicNode } => {
-    const pattern = parsePattern(node.children[0], env)
-    const body = parseExpression(node.children[2])
-    return {pattern, body}
-}
+// export const parseMatch = (node: Parser.SyntaxNode, env: Environment): PatternMatchNode => {
+//     const cases = node.children
+//         .filter(child => child.type === CASE).map(child => parseRule(child, env))
+//     return new PatternMatchNode(cases)
+// }
+//
+// const parseRule = (node: Parser.SyntaxNode, env: Environment): { pattern: Pattern, body: SymbolicNode } => {
+//     const pattern = parsePattern(node.children[0], env)
+//     const body = parseExpression(node.children[2])
+//     return {pattern, body}
+// }
 
 export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern => {
     switch (node.type) {
@@ -71,7 +69,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                     ])
                 }
             } else {
-                throw new Error("Unsupported number of subpatterns in app pattern: " + subPatternsApp.length)
+                throw new NotImplementedError("Unsupported number of subpatterns in app pattern: " + subPatternsApp.length)
             }
         case PARENTHESIZED_PATTERN:
             return parsePattern(node.children[1], env)
@@ -140,12 +138,12 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                     throw new PatternMatchError()
                 }
             } else {
-                throw new Error("Unsupported constant type: " + constant)
+                throw new NotImplementedError("Unsupported constant type: " + constant)
             }
         case WILD_PATTERN:
             return (_: SymbolicNode) => new Map<string, SymbolicNode>()
         default:
-            throw new Error(`Unknown pattern type: ${node.type}`)
+            throw new NotImplementedError()
     }
 
 }

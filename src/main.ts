@@ -1,8 +1,9 @@
 import Heap from "heap-js";
 import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "./models/types";
-import {ConstructorNode, FunctionNode, HoleNode, IntegerNode, SymbolicNode} from "./models/symbolic_nodes";
-import {getTupleConstructorName, parseProgram} from "./parsers/program";
+import {FunctionNode, HoleNode, IntegerNode, SymbolicNode} from "./models/symbolic_nodes";
+import {parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
+import {Generator} from "./engine/generator";
 
 const main = async () => {
     const targetType = new TupleType([new FunctionType(PrimitiveType.INT, PrimitiveType.INT), new PrimitiveType("int")])
@@ -12,36 +13,18 @@ const main = async () => {
 
     const program = await fs.readFile("test/test_1.in", "utf-8")
 
+    printSection("PARSING")
     const env = parseProgram(program)
+
+    printSection("CONSTRUCTORS")
 
     env.constructors.forEach((value, key) => {
         console.log(key, value.toString())
     })
 
-    const exp_eval = <FunctionNode>env.bindings.get("exp_eval")
-    const res = exp_eval.apply(new ConstructorNode([
-            new ConstructorNode([
-                    new ConstructorNode([new IntegerNode(5)], "NUM"),
-                    new ConstructorNode([new IntegerNode(10)], "NUM")],
-                getTupleConstructorName(2))],
-        "PLUS"))
-    console.log(res.toString())
-
-    const f = <FunctionNode>env.bindings.get("f")
-    const res2 = f.apply(new ConstructorNode([], "nil"))
-    console.log(res2.toString())
-
-    const res3 = f.apply(new ConstructorNode([
-        new ConstructorNode([
-            new IntegerNode(5),
-            new ConstructorNode([], "nil")
-        ], getTupleConstructorName(2))
-    ], "::"))
-    console.log(res3.toString())
-
+    printSection("MAIN RUN")
     const main = <FunctionNode>env.bindings.get("main")
-    const res4 = main.apply(new IntegerNode(5))
-    console.log(res4.toString())
+    console.log(main.apply(new IntegerNode(5)).toString())
 
     // const { Context } = await init();
     // const { Solver, Int, And } = Context('main');
@@ -53,16 +36,26 @@ const main = async () => {
     // const result = await solver.check();
     // console.log(solver.model().get(x).toString());
 
+    printSection("GENERATOR")
 
-    // while (minHeap.size() > 0) {
-    //     const testCase = minHeap.pop()
-    //     if (testCase.holesNumber() === 0) {
-    //         console.log(testCase.toString())
-    //         continue
-    //     }
-    //     Generator(testCase, minHeap, constructors)
-    //     if (testCase.size() >= 20) break
-    // }
+    const generator = new Generator(env.constructors)
+    while (minHeap.size() > 0) {
+        const testCase = minHeap.pop()
+        if (testCase.isGround()) {
+            console.log(testCase.toString())
+            continue
+        }
+
+        generator.generate(testCase, minHeap)
+
+        if (testCase.size() >= 10) break
+    }
+    printSection("END")
+}
+
+const printSection = (title: string) => {
+    console.log("\n\n")
+    console.log("=== " + title + " ===")
 }
 
 void main()

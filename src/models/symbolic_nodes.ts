@@ -1,181 +1,125 @@
 import {PolymorphicType, TupleType, Type} from "./types";
-import {Pattern, tryMatch} from "../parsers/pattern";
-import {Bindings, Environment, getTupleConstructorName} from "../parsers/program";
+import {tryMatch} from "../parsers/pattern";
+import {Environment, getTupleConstructorName} from "../parsers/program";
+import {
+    BuiltinOperationError,
+    NotImplementedError,
+    PatternMatchingNotExhaustiveError,
+    UnexpectedError,
+    VariableNotDefinedError
+} from "./errors";
+import {Clause} from "../parsers/declaration";
+import {Constructor} from "./utils";
 
-export interface SymbolicNode {
-    size(): number;
+export abstract class SymbolicNode {
+    size(): number {
+        return 1;
+    }
 
-    toString(): string;
+    holesNumber(): number {
+        return 0;
+    }
 
-    holesNumber(): number;
+    isGround(): boolean {
+        return this.holesNumber() === 0
+    }
 
-    evaluate(env: Environment): SymbolicNode;
+    abstract evaluate(env: Environment): SymbolicNode;
 }
 
 export interface ApplicableNode {
     apply(argument: SymbolicNode): SymbolicNode;
 }
 
-export type Binop = '+' | '-' | '*' | 'div' | 'mod';
-export const BINOPS: Binop[] = ['+', '-', '*', 'div', 'mod'];
+export interface ValuableNode<T> {
+    readonly value: T
+}
 
-export class IntegerNode implements SymbolicNode {
+export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
     readonly value: number;
 
     constructor(value: number) {
+        super();
         this.value = value;
     }
 
-    size(): number {
-        return 1;
+    evaluate(env: Environment): SymbolicNode {
+        return this;
     }
 
     toString() {
         return this.value.toString();
     }
+}
 
-    holesNumber(): number {
-        return 0;
+export class StringNode extends SymbolicNode implements ValuableNode<string> {
+    readonly value: string;
+
+    constructor(value: string) {
+        super();
+        this.value = value;
     }
 
     evaluate(env: Environment): SymbolicNode {
         return this;
-    }
-}
-
-export class StringNode implements SymbolicNode {
-    readonly value: string;
-
-    constructor(value: string) {
-        this.value = value;
-    }
-
-    size(): number {
-        return 1;
     }
 
     toString() {
         return this.value;
     }
-
-    holesNumber(): number {
-        return 0;
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        return this;
-    }
 }
 
-export class IdentifierNode implements SymbolicNode {
+export class IdentifierNode extends SymbolicNode {
     readonly name: string
     readonly opped: boolean
 
     constructor(name: string, opped: boolean = false) {
+        super();
         this.name = name
         this.opped = opped
-    }
-
-    size(): number {
-        return 1;
     }
 
     toString() {
         return this.name
     }
 
-    holesNumber(): number {
-        return 0;
-    }
-
     evaluate(env: Environment): SymbolicNode {
+        // name may be a constructor
         const constructor = env.constructors.get(this.name)
         if (constructor) {
+            // special case for constructors with no arguments
             if (constructor.argType instanceof TupleType && constructor.argType.elementTypes.length === 0) {
                 return new ConstructorNode([], this.name)
             }
             return new BuiltInFunctionNode((args) =>
                 new ConstructorNode([args], this.name))
         }
+
         const value = env.bindings.get(this.name)
-        if (!value) throw new Error(`Variable ${this.name} not found in environment`)
+        if (!value) throw new VariableNotDefinedError(this.name)
+
         return value
     }
 }
 
-// TODO deprecated
-export class BinopNode implements SymbolicNode {
-    readonly op: Binop;
-    readonly left: SymbolicNode;
-    readonly right: SymbolicNode;
-
-    constructor(op: Binop, left: SymbolicNode, right: SymbolicNode) {
-        this.op = op
-        this.left = left
-        this.right = right
-    }
-
-    size(): number {
-        return 1 + this.left.size() + this.right.size();
-    }
-
-    toString() {
-        return `(${this.left} ${this.op} ${this.right})`
-    }
-
-    holesNumber(): number {
-        return this.left.holesNumber() + this.right.holesNumber();
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new Error("Method not implemented.");
-    }
-}
-
-// TODO deprecated
-export class ConcatNode implements SymbolicNode {
-    readonly left: SymbolicNode;
-    readonly right: SymbolicNode;
-
-    constructor(left: SymbolicNode, right: SymbolicNode) {
-        this.left = left
-        this.right = right
-    }
-
-    size(): number {
-        return 1 + this.left.size() + this.right.size();
-    }
-
-    toString() {
-        return `(${this.left} ^ ${this.right})`
-    }
-
-    holesNumber(): number {
-        return this.left.holesNumber() + this.right.holesNumber();
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new Error("Method not implemented.");
-    }
-}
-
-export class ApplicationNode implements SymbolicNode {
-    readonly nodes: SymbolicNode[];
-
+export class ApplicationNode extends SymbolicNode {
     constructor(nodes: SymbolicNode[]) {
+        super();
         this.nodes = nodes
     }
 
-    holesNumber(): number {
-        return 0;
+    readonly nodes: SymbolicNode[];
+
+    static isInfix(node: SymbolicNode, env: Environment): boolean {
+        return node instanceof IdentifierNode && !node.opped && env.infixData.has(node.name)
     }
 
     size(): number {
-        return 0;
+        return 1 + this.nodes.reduce((acc, node) => acc + node.size(), 0);
     }
 
-    isInfix(node: SymbolicNode, env: Environment): boolean {
-        return node instanceof IdentifierNode && !node.opped && env.infixData.has(node.name)
+    holesNumber(): number {
+        return this.nodes.reduce((acc, node) => acc + node.holesNumber(), 0);
     }
 
     evaluate(env: Environment): SymbolicNode {
@@ -188,7 +132,7 @@ export class ApplicationNode implements SymbolicNode {
             const lookahead = inputStack[inputStack.length - 1]
 
             // push infix to work stack if no reduce
-            if (this.isInfix(node, env)) {
+            if (ApplicationNode.isInfix(node, env)) {
                 if (workStack.length >= 3) {
                     const leftInfix = env.infixData.get((<IdentifierNode>workStack[workStack.length - 2]).name)
                     const rightInfix = env.infixData.get((<IdentifierNode>node).name)
@@ -216,13 +160,13 @@ export class ApplicationNode implements SymbolicNode {
 
             const workTop = workStack[workStack.length - 1]
             // if previous node is not infix, it's applicable and has higher precedence than infix
-            if (!this.isInfix(workTop, env)) {
+            if (!ApplicationNode.isInfix(workTop, env)) {
                 const func = <ApplicableNode><unknown>workStack.pop()
                 workStack.push(func.apply(node.evaluate(env)))
                 continue
             }
             // if previous node is infix and the next node is not, we skip
-            if (!this.isInfix(lookahead, env)) {
+            if (!ApplicationNode.isInfix(lookahead, env)) {
                 workStack.push(node.evaluate(env))
                 continue
             }
@@ -250,23 +194,18 @@ export class ApplicationNode implements SymbolicNode {
     }
 }
 
-export class ConstructorNode implements SymbolicNode {
+export class ConstructorNode extends SymbolicNode {
     readonly args: SymbolicNode[];
     readonly name: string
 
     constructor(args: SymbolicNode[], name: string) {
+        super();
         this.args = args
         this.name = name
     }
 
     size(): number {
         return 1 + this.args.reduce((acc, arg) => acc + arg.size(), 0);
-    }
-
-    toString() {
-        if (this.args.length === 0) return this.name
-        if (this.args.length === 2) return `(${this.args[0]} ${this.name} ${this.args[1]})`
-        return `${this.name}(${this.args.join(", ")})`
     }
 
     holesNumber(): number {
@@ -276,19 +215,19 @@ export class ConstructorNode implements SymbolicNode {
     evaluate(env: Environment): SymbolicNode {
         return new ConstructorNode(this.args.map(arg => arg.evaluate(env)), this.name)
     }
+
+    toString() {
+        if (this.args.length === 0) return this.name
+        return `${this.name}(${this.args.join(", ")})`
+    }
 }
 
-export type Clause = {
-    patterns: Pattern[],
-    body: SymbolicNode,
-    subBindings: Bindings
-}
-
-export class FunctionNode implements SymbolicNode, ApplicableNode {
+export class FunctionNode extends SymbolicNode implements ApplicableNode {
     readonly clauses: Clause[];
     readonly closure: Environment;
 
     constructor(clauses: Clause[], closure: Environment) {
+        super();
         this.clauses = clauses
         this.closure = closure
     }
@@ -314,7 +253,7 @@ export class FunctionNode implements SymbolicNode, ApplicableNode {
                     return clause.body.evaluate(env)
                 }
             }
-            throw new Error("Pattern match not exhaustive")
+            throw new PatternMatchingNotExhaustiveError()
         }
 
         let newClauses: Clause[] = []
@@ -328,28 +267,21 @@ export class FunctionNode implements SymbolicNode, ApplicableNode {
                 })
             }
         }
-        if (newClauses.length === 0) throw new Error("Pattern match not exhaustive")
+        if (newClauses.length === 0) throw new PatternMatchingNotExhaustiveError()
         return new FunctionNode(newClauses, this.closure)
     }
 
     evaluate(env: Environment): SymbolicNode {
-        throw new Error("Method not implemented.");
+        throw new NotImplementedError()
     }
 }
 
-export class BuiltInFunctionNode implements SymbolicNode, ApplicableNode {
+export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode {
     readonly func: (args: SymbolicNode) => SymbolicNode;
 
     constructor(func: (args: SymbolicNode) => SymbolicNode) {
+        super();
         this.func = func;
-    }
-
-    size(): number {
-        return 1;
-    }
-
-    holesNumber(): number {
-        return 0;
     }
 
     apply(argument: SymbolicNode): SymbolicNode {
@@ -357,37 +289,31 @@ export class BuiltInFunctionNode implements SymbolicNode, ApplicableNode {
     }
 
     evaluate(env: Environment): SymbolicNode {
-        throw new Error("Unexpected evaluation of built-in function")
+        throw new UnexpectedError()
     }
 }
 
-export class BuiltInBinopNode extends BuiltInFunctionNode {
-    constructor(func: (a: number, b: number) => number) {
-        super((node) => {
+export class BuiltInBinopNode<BaseType, NodeType extends SymbolicNode & ValuableNode<BaseType>> extends BuiltInFunctionNode {
+    constructor(func: (a: BaseType, b: BaseType) => BaseType, nodeType: Constructor<NodeType>) {
+        super((node): SymbolicNode => {
             if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
-                throw new Error("Expected tuple with two elements")
+                throw new BuiltinOperationError("Expected tuple with two elements")
             }
             const [a, b] = node.args
-            if (!(a instanceof IntegerNode) || !(b instanceof IntegerNode)) {
-                throw new Error("Expected two integers")
+            if (!(a instanceof nodeType) || !(b instanceof nodeType)) {
+                throw new BuiltinOperationError("expected two arguments of type " + nodeType.toString())
             }
-            return new IntegerNode(func(a.value, b.value))
+            return new nodeType(func((<NodeType>a).value, (<NodeType>b).value))
         });
     }
 }
 
-// TODO deprecated
-export class TestFunctionNode implements SymbolicNode {
-    private static argCount = 0;
-
+export class TestFunctionNode extends SymbolicNode {
     readonly argName: string;
     readonly body: SymbolicNode;
 
-    static freshArgName() {
-        return 'arg' + TestFunctionNode.argCount++;
-    }
-
     constructor(argName: string, body: SymbolicNode) {
+        super();
         this.argName = argName
         this.body = body
     }
@@ -396,99 +322,60 @@ export class TestFunctionNode implements SymbolicNode {
         return 1 + this.body.size();
     }
 
-    toString() {
-        return `λ${this.argName}.${this.body}`
-    }
-
     holesNumber(): number {
         return this.body.holesNumber();
     }
 
     evaluate(env: Environment): SymbolicNode {
-        throw new Error("Method not implemented.");
+        throw new NotImplementedError()
+    }
+
+    toString() {
+        return `λ${this.argName}.${this.body}`
     }
 }
 
-export class PatternMatchNode implements SymbolicNode {
-    readonly cases: { pattern: Pattern, body: SymbolicNode }[];
-
-    constructor(cases: { pattern: Pattern, body: SymbolicNode }[]) {
-        this.cases = cases
-    }
-
-    holesNumber(): number {
-        return 0;
-    }
-
-    size(): number {
-        return 0;
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new Error("Method not implemented.");
-    }
-}
-
-export class HoleNode implements SymbolicNode {
+export class HoleNode extends SymbolicNode {
     readonly type: Type;
     readonly env: Map<string, Type>;
     readonly substitution: Map<PolymorphicType, Type>;
 
     constructor(type: Type, env: Map<string, Type>, substitution: Map<PolymorphicType, Type>) {
+        super();
         this.type = type;
         this.env = env;
         this.substitution = substitution;
     }
 
-    size(): number {
+    holesNumber(): number {
         return 1;
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new UnexpectedError()
     }
 
     toString() {
         return "_"
     }
-
-    holesNumber(): number {
-        return 1;
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new Error("Not supposed to happen");
-    }
 }
 
-export class IntegerSymbolNode implements SymbolicNode {
-    size(): number {
-        return 1;
+export class IntegerSymbolNode extends SymbolicNode {
+    evaluate(env: Environment): SymbolicNode {
+        throw new UnexpectedError()
     }
 
     toString() {
         return "I"
     }
-
-    holesNumber(): number {
-        return 0;
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new Error("Not supposed to happen");
-    }
 }
 
-export class StringSymbolNode implements SymbolicNode {
-    size(): number {
-        return 1;
+export class StringSymbolNode extends SymbolicNode {
+    evaluate(env: Environment): SymbolicNode {
+        throw new UnexpectedError()
     }
 
     toString() {
         return "S"
-    }
-
-    holesNumber(): number {
-        return 0;
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new Error("Not supposed to happen");
     }
 }

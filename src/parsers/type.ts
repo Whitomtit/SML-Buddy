@@ -10,6 +10,7 @@ import {
     WRAPPED_POLYMORPHIC_TYPE
 } from "./const";
 import {CompoundType, FunctionType, PrimitiveType, TupleType, Type} from "../models/types";
+import {NotImplementedError, UnexpectedError} from "../models/errors";
 
 export const generateType = (typeName: string, subTypes: Type[]): Type => {
     const base = new PrimitiveType(typeName)
@@ -38,7 +39,7 @@ export const parseType = (node: Parser.SyntaxNode, typeMap: Map<string, Type>): 
         return typeMap.get(node.text)
     } else if (node.type === RECORD_TYPE) {
         // TODO implement record type
-        throw new Error("Record type not implemented")
+        throw new NotImplementedError()
     } else if (node.type === CONSTRUCTOR_TYPE) {
         const types = node.children
             .filter(isTypeNode)
@@ -48,6 +49,6 @@ export const parseType = (node: Parser.SyntaxNode, typeMap: Map<string, Type>): 
     } else if (node.type === PARENTHESIZED_TYPE) {
         return parseType(node.children[1], typeMap)
     } else {
-        throw new Error(`Invalid type: ${node.type}`)
+        throw new UnexpectedError()
     }
 }

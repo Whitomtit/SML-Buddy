@@ -1,8 +1,8 @@
 import Parser from "tree-sitter";
 import {CLAUSE, DECLARATIONS, FUNCTION_BIND} from "./const";
 import {Bindings, Environment} from "./program";
-import {Clause, FunctionNode, SymbolicNode} from "../models/symbolic_nodes";
-import {isPattern, parsePattern} from "./pattern";
+import {FunctionNode, SymbolicNode} from "../models/symbolic_nodes";
+import {isPattern, parsePattern, Pattern} from "./pattern";
 import {parseExpression} from "./expression";
 
 export const isDeclaration = (node: Parser.SyntaxNode): boolean => {
@@ -33,6 +33,11 @@ const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings 
     return nameBind
 }
 
+export type Clause = {
+    patterns: Pattern[],
+    body: SymbolicNode,
+    subBindings: Bindings
+}
 const parseClause = (node: Parser.SyntaxNode, env: Environment): Clause => {
     const patterns = node.children.filter(isPattern).map((child) => parsePattern(child, env))
     const body = parseExpression(node.lastChild)

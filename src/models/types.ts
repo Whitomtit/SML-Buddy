@@ -1,15 +1,5 @@
-export const substitute = (type: Type, substitution: Map<PolymorphicType, Type>): Type => {
-    if (type instanceof PolymorphicType) {
-        return substitution.get(type) || type;
-    }
-    return type;
-}
-
-export class MergeError extends Error {
-    constructor() {
-        super("Cannot merge types");
-    }
-}
+import {MergeError} from "./errors";
+import {substitute} from "./utils";
 
 export interface Type {
     mergeWith(other: Type, substitution: Map<PolymorphicType, Type>): void;
@@ -55,10 +45,6 @@ export class TupleType implements Type {
 
     constructor(elementTypes: Type[]) {
         this.elementTypes = elementTypes;
-        if (elementTypes.length === 1) {
-            // TODO sanity check
-            throw new Error("One element is not a tuple");
-        }
     }
 
     mergeWith(other: Type, substitution: Map<PolymorphicType, Type>) {

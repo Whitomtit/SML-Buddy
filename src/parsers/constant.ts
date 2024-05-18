@@ -1,6 +1,7 @@
 import Parser from "tree-sitter";
 import {IntegerNode, StringNode, SymbolicNode} from "../models/symbolic_nodes";
 import {INT_CONSTANT, STRING_CONSTANT} from "./const";
+import {NotImplementedError} from "../models/errors";
 
 export const parseConstant = (node: Parser.SyntaxNode): SymbolicNode => {
     switch (node.type) {
@@ -9,6 +10,6 @@ export const parseConstant = (node: Parser.SyntaxNode): SymbolicNode => {
         case STRING_CONSTANT:
             return new StringNode(node.text)
         default:
-            throw new Error("Unsupported constant type: " + node.type)
+            throw new NotImplementedError("Unsupported constant type: " + node.type)
     }
 }

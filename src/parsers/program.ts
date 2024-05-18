@@ -2,9 +2,10 @@ import Parser from "tree-sitter";
 import {isDeclaration, parseFunctionDeclaration} from "./declaration";
 import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
-import {BuiltInBinopNode, SymbolicNode} from "../models/symbolic_nodes";
+import {BuiltInBinopNode, IntegerNode, StringNode, SymbolicNode} from "../models/symbolic_nodes";
 import {DATATYPE_DECLARATION, FUNCTION_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
+import {NotImplementedError, UnexpectedError} from "../models/errors";
 
 export type InfixType = "Left" | "Right"
 export type Infix = {
@@ -36,14 +37,15 @@ export const parseProgram = (program: string): Environment => {
 
     traverse(parseTree.rootNode)
 
-    const initialBindings: Bindings = new Map<string, SymbolicNode>([
-        ["+", new BuiltInBinopNode((a, b) => a + b)],
-        ["-", new BuiltInBinopNode((a, b) => a - b)],
-        ["*", new BuiltInBinopNode((a, b) => a * b)],
-        ["div", new BuiltInBinopNode((a, b) => Math.floor(a / b))],
-        ["mod", new BuiltInBinopNode((a, b) => a % b)],
+    const initialBindings: Bindings = new Map([
+        ["+", new BuiltInBinopNode<number, IntegerNode>((a, b) => a + b, IntegerNode)],
+        ["-", new BuiltInBinopNode<number, IntegerNode>((a, b) => a - b, IntegerNode)],
+        ["*", new BuiltInBinopNode<number, IntegerNode>((a, b) => a * b, IntegerNode)],
+        ["div", new BuiltInBinopNode<number, IntegerNode>((a, b) => Math.floor(a / b), IntegerNode)],
+        ["mod", new BuiltInBinopNode<number, IntegerNode>((a, b) => a % b, IntegerNode)],
+        ["^", new BuiltInBinopNode<string, StringNode>((a, b) => a + b, StringNode)],
     ])
-    const initialConstructors: Constructors = new Map<string, FunctionType>([
+    const initialConstructors: Constructors = new Map([
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],
         [getTupleConstructorName(2), new FunctionType(new TupleType([a, b]), new TupleType([a, b]))],
         [getTupleConstructorName(3), new FunctionType(new TupleType([a, b, c]), new TupleType([a, b, c]))],
@@ -89,8 +91,7 @@ export const parseProgram = (program: string): Environment => {
                 environment.bindings = new Map([...environment.bindings, ...parseFunctionDeclaration(declaration, environment)])
                 break
             default:
-                console.log("Declaration not implemented: " + declaration.type + " || " + declaration.text)
-                break
+                throw new NotImplementedError("Declaration not implemented: " + declaration.type + " || " + declaration.text)
         }
     }
     return environment
@@ -105,7 +106,7 @@ function traverse(node: Parser.SyntaxNode, depth = 0) {
 
 export const getTupleConstructorName = (arity: number): string => {
     if (arity === 1 || arity < 0) {
-        throw new Error("Tuple arity must be not equal 1 or less than zero")
+        throw new UnexpectedError()
     }
     return `${arity}_tuple`
 
