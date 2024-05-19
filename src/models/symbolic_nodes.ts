@@ -1,6 +1,6 @@
 import {PolymorphicType, TupleType, Type} from "./types";
 import {tryMatch} from "../parsers/pattern";
-import {Environment, getTupleConstructorName} from "../parsers/program";
+import {Constructors, Environment, getTupleConstructorName} from "../parsers/program";
 import {
     BuiltinOperationError,
     NotImplementedError,
@@ -9,7 +9,9 @@ import {
     VariableNotDefinedError
 } from "./errors";
 import {Clause} from "../parsers/declaration";
-import {Constructor} from "./utils";
+import {Constructor, product, Summary, SymEnvironment} from "./utils";
+import {Bool} from "z3-solver";
+import {CustomContext} from "./context";
 
 export abstract class SymbolicNode {
     size(): number {
@@ -25,6 +27,10 @@ export abstract class SymbolicNode {
     }
 
     abstract evaluate(env: Environment): SymbolicNode;
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        throw new NotImplementedError()
+    }
 }
 
 export interface ApplicableNode {
@@ -33,6 +39,10 @@ export interface ApplicableNode {
 
 export interface ValuableNode<T> {
     readonly value: T
+}
+
+export interface FormulaNode {
+    readonly formulaName: string
 }
 
 export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
@@ -45,6 +55,10 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
 
     evaluate(env: Environment): SymbolicNode {
         return this;
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return [{path, value: this}]
     }
 
     toString() {
@@ -64,6 +78,10 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
         return this;
     }
 
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return [{path, value: this}]
+    }
+
     toString() {
         return this.value;
     }
@@ -79,26 +97,49 @@ export class IdentifierNode extends SymbolicNode {
         this.opped = opped
     }
 
-    toString() {
-        return this.name
-    }
-
     evaluate(env: Environment): SymbolicNode {
         // name may be a constructor
-        const constructor = env.constructors.get(this.name)
+        const constructor = this.evaluateConstructor(env.constructors)
         if (constructor) {
-            // special case for constructors with no arguments
-            if (constructor.argType instanceof TupleType && constructor.argType.elementTypes.length === 0) {
-                return new ConstructorNode([], this.name)
-            }
-            return new BuiltInFunctionNode((args) =>
-                new ConstructorNode([args], this.name))
+            return constructor
         }
 
         const value = env.bindings.get(this.name)
         if (!value) throw new VariableNotDefinedError(this.name)
 
         return value
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        // name may be a constructor
+        const constructor = this.evaluateConstructor(env.constructors)
+        if (constructor) {
+            return [{path, value: constructor}]
+        }
+
+        const value = env.bindings.get(this.name)
+        if (!value) throw new VariableNotDefinedError(this.name)
+
+        return value
+    }
+
+    toString() {
+        return this.name
+    }
+
+    private evaluateConstructor(constructors: Constructors): SymbolicNode {
+        const constructor = constructors.get(this.name)
+
+        if (!constructor) {
+            return null
+        }
+
+        // special case for constructors with no arguments
+        if (constructor.argType instanceof TupleType && constructor.argType.elementTypes.length === 0) {
+            return new ConstructorNode([], this.name)
+        }
+        return new BuiltInFunctionNode((args) =>
+            new ConstructorNode([args], this.name))
     }
 }
 
@@ -216,6 +257,17 @@ export class ConstructorNode extends SymbolicNode {
         return new ConstructorNode(this.args.map(arg => arg.evaluate(env)), this.name)
     }
 
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        const summaries = this.args.map(arg => arg.summarize(context, env, path))
+        return product(summaries).map((binds) => {
+            const args = binds.map(({value}) => value)
+            const combined_path =
+                binds.reduce((combined_path, {path}) =>
+                    context.And(combined_path, path), context.Bool.val(true))
+            return {path: combined_path, value: new ConstructorNode(args, this.name)}
+        })
+    }
+
     toString() {
         if (this.args.length === 0) return this.name
         return `${this.name}(${this.args.join(", ")})`
@@ -237,6 +289,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     holesNumber(): number {
+        // TODO binds contains holes?
         return this.clauses.reduce((acc, clause) => acc + clause.body.holesNumber(), 0);
     }
 
@@ -246,7 +299,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                 const parameterBind = tryMatch(() => clause.patterns[0](argument))
                 if (parameterBind !== null) {
                     const env: Environment = {
-                        bindings: new Map([...this.closure.bindings, ...clause.subBindings, ...parameterBind]),
+                        bindings: new Map([...this.closure.bindings, ...clause.subBindings, ...parameterBind.bindings]),
                         constructors: this.closure.constructors,
                         infixData: this.closure.infixData
                     }
@@ -263,16 +316,34 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                 newClauses.push({
                     patterns: clause.patterns.slice(1),
                     body: clause.body,
-                    subBindings: new Map([...clause.subBindings, ...parameterBind])
+                    subBindings: new Map([...clause.subBindings, ...parameterBind.bindings])
                 })
             }
         }
         if (newClauses.length === 0) throw new PatternMatchingNotExhaustiveError()
+        return this.recreateClauses(newClauses)
+    }
+
+    protected recreateClauses(newClauses: Clause[]): FunctionNode {
         return new FunctionNode(newClauses, this.closure)
     }
 
     evaluate(env: Environment): SymbolicNode {
         throw new NotImplementedError()
+    }
+}
+
+export class RecursiveFunctionNode extends FunctionNode implements ApplicableNode {
+    static readonly INITIAL_DEEP_LIMIT = 7
+    readonly deepLimit: number;
+
+    constructor(clauses: Clause[], closure: Environment, deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
+        super(clauses, closure)
+        this.deepLimit = deepLimit
+    }
+
+    protected recreateClauses(newClauses: Clause[]): RecursiveFunctionNode {
+        return new RecursiveFunctionNode(newClauses, this.closure, this.deepLimit)
     }
 }
 
@@ -355,14 +426,29 @@ export class HoleNode extends SymbolicNode {
         throw new UnexpectedError()
     }
 
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        throw new UnexpectedError()
+    }
+
     toString() {
         return "_"
     }
 }
 
-export class IntegerSymbolNode extends SymbolicNode {
+export class IntegerSymbolNode extends SymbolicNode implements FormulaNode {
+    readonly formulaName: string;
+
+    constructor(formulaName: string) {
+        super();
+        this.formulaName = formulaName;
+    }
+
     evaluate(env: Environment): SymbolicNode {
         throw new UnexpectedError()
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return [{path, value: this}]
     }
 
     toString() {
@@ -371,8 +457,19 @@ export class IntegerSymbolNode extends SymbolicNode {
 }
 
 export class StringSymbolNode extends SymbolicNode {
+    readonly formulaName: string;
+
+    constructor(formulaName: string) {
+        super();
+        this.formulaName = formulaName;
+    }
+
     evaluate(env: Environment): SymbolicNode {
         throw new UnexpectedError()
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return [{path, value: this}]
     }
 
     toString() {

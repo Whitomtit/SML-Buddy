@@ -1,7 +1,7 @@
 import Parser from "tree-sitter";
 import {CLAUSE, DECLARATIONS, FUNCTION_BIND} from "./const";
 import {Bindings, Environment} from "./program";
-import {FunctionNode, SymbolicNode} from "../models/symbolic_nodes";
+import {RecursiveFunctionNode, SymbolicNode} from "../models/symbolic_nodes";
 import {isPattern, parsePattern, Pattern} from "./pattern";
 import {parseExpression} from "./expression";
 
@@ -23,14 +23,14 @@ const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings 
     const namePattern = clauses[0].patterns[0]
     clauses.forEach((clause) => clause.patterns.shift())
 
-    const functionNode = new FunctionNode(clauses, {
+    const functionNode = new RecursiveFunctionNode(clauses, {
         bindings: new Map(env.bindings),
         constructors: new Map(env.constructors),
         infixData: new Map(env.infixData)
     })
     const nameBind = namePattern(functionNode)
-    functionNode.closure.bindings = new Map([...functionNode.closure.bindings, ...nameBind])
-    return nameBind
+    functionNode.closure.bindings = new Map([...functionNode.closure.bindings, ...nameBind.bindings])
+    return nameBind.bindings
 }
 
 export type Clause = {

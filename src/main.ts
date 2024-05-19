@@ -1,13 +1,14 @@
 import Heap from "heap-js";
-import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "./models/types";
-import {FunctionNode, HoleNode, IntegerNode, SymbolicNode} from "./models/symbolic_nodes";
+import {PolymorphicType, PrimitiveType, Type} from "./models/types";
+import {HoleNode, IntegerNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
 import {parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
 import {Generator} from "./engine/generator";
+import {init} from "z3-solver";
+import {createCustomContext} from "./models/context";
 
 const main = async () => {
-    const targetType = new TupleType([new FunctionType(PrimitiveType.INT, PrimitiveType.INT), new PrimitiveType("int")])
-
+    const targetType = PrimitiveType.INT
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
 
@@ -23,18 +24,26 @@ const main = async () => {
     })
 
     printSection("MAIN RUN")
-    const main = <FunctionNode>env.bindings.get("main")
+    const main = <RecursiveFunctionNode>env.bindings.get("main")
     console.log(main.apply(new IntegerNode(5)).toString())
 
-    // const { Context } = await init();
-    // const { Solver, Int, And } = Context('main');
-    //
-    // const x = Int.const('x');
-    //
-    // const solver = new Solver();
-    // solver.add(And(x.ge(5), x.le(9)));
-    // const result = await solver.check();
-    // console.log(solver.model().get(x).toString());
+    printSection("SYMBOLIC SUMMARIES")
+    const test_a = <RecursiveFunctionNode>env.bindings.get("test_a")
+    const test_b = <RecursiveFunctionNode>env.bindings.get("test_b")
+    console.log(test_a.apply(new IntegerNode(2)).toString())
+    console.log(test_b.apply(new IntegerNode(2)).toString())
+
+    const {Context, Z3} = await init();
+    const context = createCustomContext(Context('main'), Z3)
+    const {Solver, Int} = context;
+
+    const solver = new Solver();
+
+    solver.add(context.assert_string_eq("x", "hello"))
+    solver.add(context.assert_string_eq("y", "world"))
+    solver.add(context.assert_string_eq("x", "hello"))
+    await solver.check();
+    console.log(solver.model().toString());
 
     printSection("GENERATOR")
 

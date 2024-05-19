@@ -17,10 +17,12 @@ import {Constructors} from "../parsers/program";
 export class Generator {
     private readonly constructors: Constructors
     private argCount: number
+    private formulaCount: number
 
     constructor(constructors: Constructors) {
         this.constructors = constructors
         this.argCount = 0
+        this.formulaCount = 0
     }
 
     generate(testCase: SymbolicNode, minHeap: AddableContainer<SymbolicNode>) {
@@ -28,7 +30,7 @@ export class Generator {
             // E-Num
             tryMerge((substitution) => {
                 testCase.type.mergeWith(PrimitiveType.INT, substitution)
-                minHeap.push(new IntegerSymbolNode())
+                minHeap.push(new IntegerSymbolNode(this.freshFormulaName()))
 
                 if (testCase.env.size === 0) return
 
@@ -44,7 +46,7 @@ export class Generator {
             // E-Str
             tryMerge((substitution) => {
                 testCase.type.mergeWith(PrimitiveType.STRING, substitution)
-                minHeap.push(new StringSymbolNode())
+                minHeap.push(new StringSymbolNode(this.freshFormulaName()))
 
                 if (testCase.env.size === 0) return
 
@@ -133,6 +135,10 @@ export class Generator {
 
     private freshArgName() {
         return 'arg' + this.argCount++;
+    }
+
+    private freshFormulaName() {
+        return 'v' + this.formulaCount++;
     }
 }
 
