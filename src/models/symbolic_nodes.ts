@@ -109,7 +109,7 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
             return context.Bool.val(this.value === other.value)
         }
         if (other instanceof StringSymbolNode) {
-            return context.VarEqString(other.formulaName, this.value)
+            return other.valueSupplier(context).eq(context.String.val(this.value))
         }
         throw new UnexpectedError()
     }
@@ -714,13 +714,15 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
     }
 }
 
-export class StringSymbolNode extends SymbolicNode {
-    readonly formulaName: string;
+export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
+    readonly valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>;
 
-    constructor(formulaName: string) {
+    constructor(valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>) {
         super();
-        this.formulaName = formulaName;
+        this.valueSupplier = valueSupplier
     }
+
+    static readonly fromVarName = (varName: string) => new StringSymbolNode((context) => context.String.const(varName))
 
     evaluate(env: Environment): SymbolicNode {
         throw new UnexpectedError()
@@ -732,16 +734,20 @@ export class StringSymbolNode extends SymbolicNode {
 
     eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
         if (other instanceof StringSymbolNode) {
-            return context.VarEqVar(this.formulaName, other.formulaName)
+            return this.getZ3Value(context).eq(other.getZ3Value(context))
         }
         if (other instanceof StringNode) {
-            return context.VarEqString(this.formulaName, other.value)
+            return this.getZ3Value(context).eq(context.String.val(other.value))
         }
         throw new UnexpectedError()
     }
 
+    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
+        return this.valueSupplier(context)
+    }
+
     toString() {
-        return this.formulaName
+        return "S"
     }
 }
 

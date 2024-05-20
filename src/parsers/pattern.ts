@@ -138,7 +138,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                     if (node instanceof StringSymbolNode) {
                         return {
                             bindings: new Map<string, SymbolicNode>(),
-                            condition: context.VarEqString(node.formulaName, constant.value)
+                            condition: node.getZ3Value(context).eq(context.String.val(constant.value))
                         }
                     }
                     throw new PatternMatchError()

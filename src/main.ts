@@ -9,7 +9,7 @@ import {createCustomContext} from "./models/context";
 import {SymbolicExecutor} from "./engine/symbolicExecutor";
 
 const main = async () => {
-    const targetType = new CompoundType(PrimitiveType.INT, list)
+    const targetType = new CompoundType(PrimitiveType.STRING, list)
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
 

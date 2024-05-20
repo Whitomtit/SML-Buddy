@@ -46,7 +46,7 @@ export class Generator {
             // E-Str
             tryMerge((substitution) => {
                 testCase.type.mergeWith(PrimitiveType.STRING, substitution)
-                minHeap.push(new StringSymbolNode(this.freshFormulaName()))
+                minHeap.push(StringSymbolNode.fromVarName(this.freshFormulaName()))
 
                 if (testCase.env.size === 0) return
 

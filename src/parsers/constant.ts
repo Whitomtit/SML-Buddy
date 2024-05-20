@@ -8,7 +8,7 @@ export const parseConstant = (node: Parser.SyntaxNode): SymbolicNode => {
         case INT_CONSTANT:
             return new IntegerNode(parseInt(node.text))
         case STRING_CONSTANT:
-            return new StringNode(node.text)
+            return new StringNode(node.text.slice(1, -1))
         default:
             throw new NotImplementedError("Unsupported constant type: " + node.type)
     }

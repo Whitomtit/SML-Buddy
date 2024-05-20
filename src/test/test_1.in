@@ -37,7 +37,7 @@ fun test_a nil = 0
   | test_a (x::xs) = 1 + (test_a xs);
 
 fun test_b nil = 0
-  | test_b (_::_::5::nil) = 1
+  | test_b ("DD"::_::"hello"::nil) = 1
   | test_b (x::xs) = 1 + (test_b xs);
 
 fun main n = f (cool_func 5) (test n);
