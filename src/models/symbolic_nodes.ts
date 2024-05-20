@@ -1,6 +1,6 @@
 import {PolymorphicType, TupleType, Type} from "./types";
-import {tryMatch} from "../parsers/pattern";
-import {Constructors, Environment, getTupleConstructorName} from "../parsers/program";
+import {Pattern, tryMatch} from "../parsers/pattern";
+import {Bindings, Constructors, Environment, getTupleConstructorName} from "../parsers/program";
 import {
     BuiltinOperationError,
     NotImplementedError,
@@ -9,7 +9,16 @@ import {
     VariableNotDefinedError
 } from "./errors";
 import {Clause} from "../parsers/declaration";
-import {Constructor, product, Summary, SymEnvironment} from "./utils";
+import {
+    bindingsToSym,
+    Constructor,
+    mergeSymBindingsInto,
+    product,
+    Summary,
+    SymBindings,
+    SymEnvironment,
+    zip
+} from "./utils";
 import {Bool} from "z3-solver";
 import {CustomContext} from "./context";
 
@@ -31,10 +40,14 @@ export abstract class SymbolicNode {
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
         throw new NotImplementedError()
     }
+
+    abstract eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode);
 }
 
 export interface ApplicableNode {
     apply(argument: SymbolicNode): SymbolicNode;
+
+    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T>
 }
 
 export interface ValuableNode<T> {
@@ -61,6 +74,16 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
         return [{path, value: this}]
     }
 
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        if (other instanceof IntegerNode) {
+            return context.Bool.val(this.value === other.value)
+        }
+        if (other instanceof IntegerSymbolNode) {
+            return context.Int.const(other.formulaName).eq(context.Int.val(this.value))
+        }
+        throw new UnexpectedError()
+    }
+
     toString() {
         return this.value.toString();
     }
@@ -80,6 +103,16 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
 
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
         return [{path, value: this}]
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        if (other instanceof StringNode) {
+            return context.Bool.val(this.value === other.value)
+        }
+        if (other instanceof StringSymbolNode) {
+            return context.VarEqString(other.formulaName, this.value)
+        }
+        throw new UnexpectedError()
     }
 
     toString() {
@@ -140,6 +173,10 @@ export class IdentifierNode extends SymbolicNode {
         }
         return new BuiltInFunctionNode((args) =>
             new ConstructorNode([args], this.name))
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
     }
 }
 
@@ -233,6 +270,18 @@ export class ApplicationNode extends SymbolicNode {
         }
         return workStack[0]
     }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        // TODO
+        if (this.nodes.length === 1) {
+            return this.nodes[0].summarize(context, env, path)
+        }
+        super.summarize(context, env, path)
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
 }
 
 export class ConstructorNode extends SymbolicNode {
@@ -268,6 +317,18 @@ export class ConstructorNode extends SymbolicNode {
         })
     }
 
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        if (other instanceof ConstructorNode && this.name === other.name) {
+            return this.args.reduce((acc, arg, i) => {
+                return context.And(acc, arg.eqZ3To(context, other.args[i]))
+            }, context.Bool.val(true))
+        }
+        if (other instanceof ConstructorNode) {
+            return context.Bool.val(false)
+        }
+        throw new UnexpectedError()
+    }
+
     toString() {
         if (this.args.length === 0) return this.name
         return `${this.name}(${this.args.join(", ")})`
@@ -277,11 +338,13 @@ export class ConstructorNode extends SymbolicNode {
 export class FunctionNode extends SymbolicNode implements ApplicableNode {
     readonly clauses: Clause[];
     readonly closure: Environment;
+    readonly args: (SymbolicNode | Summary<any>)[];
 
-    constructor(clauses: Clause[], closure: Environment) {
+    constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = []) {
         super();
         this.clauses = clauses
         this.closure = closure
+        this.args = args
     }
 
     size(): number {
@@ -294,42 +357,105 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     apply(argument: SymbolicNode): SymbolicNode {
-        if (this.clauses[0].patterns.length === 1) {
+        const newArgs = [...this.args, argument]
+        if (this.clauses[0].patterns.length === 1 + this.args.length) {
             for (const clause of this.clauses) {
-                const parameterBind = tryMatch(() => clause.patterns[0](argument))
-                if (parameterBind !== null) {
-                    const env: Environment = {
-                        bindings: new Map([...this.closure.bindings, ...clause.subBindings, ...parameterBind.bindings]),
-                        constructors: this.closure.constructors,
-                        infixData: this.closure.infixData
-                    }
-                    return clause.body.evaluate(env)
+                const clauseResult = this.applyClause(clause, newArgs as SymbolicNode[])
+                if (clauseResult === null) continue
+                const env: Environment = {
+                    bindings: new Map([...this.closure.bindings, ...clauseResult]),
+                    constructors: this.closure.constructors,
+                    infixData: this.closure.infixData
                 }
+                return clause.body.evaluate(env)
             }
             throw new PatternMatchingNotExhaustiveError()
         }
-
-        let newClauses: Clause[] = []
-        for (const clause of this.clauses) {
-            const parameterBind = tryMatch(() => clause.patterns[0](argument))
-            if (parameterBind !== null) {
-                newClauses.push({
-                    patterns: clause.patterns.slice(1),
-                    body: clause.body,
-                    subBindings: new Map([...clause.subBindings, ...parameterBind.bindings])
-                })
-            }
-        }
-        if (newClauses.length === 0) throw new PatternMatchingNotExhaustiveError()
-        return this.recreateClauses(newClauses)
+        return this.recreate(newArgs)
     }
 
-    protected recreateClauses(newClauses: Clause[]): FunctionNode {
-        return new FunctionNode(newClauses, this.closure)
+    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> {
+        const newArgs = [...this.args, argument] as Summary<T>[]
+        if (this.clauses[0].patterns.length === 1 + this.args.length) {
+            // TODO check it
+            const closureBinds = bindingsToSym(this.closure.bindings, context.Bool.val(true))
+            const summary: Summary<T> = []
+            let combinedPath = path
+            for (const clause of this.clauses) {
+                const clauseResult = this.applySymClause(clause, newArgs, combinedPath, context)
+                if (clauseResult === null) continue
+                const [matchBindings, matchPath] = clauseResult
+                const env: SymEnvironment<T> = {
+                    bindings: new Map([...closureBinds, ...matchBindings]),
+                    constructors: this.closure.constructors,
+                    infixData: this.closure.infixData
+                }
+
+                summary.push(...clause.body.summarize(context, env, combinedPath.and(matchPath)))
+                combinedPath = combinedPath.and(matchPath.not())
+            }
+            if (summary.length === 0) {
+                throw new PatternMatchingNotExhaustiveError()
+            }
+            return summary
+        }
+        return [{
+            path,
+            value: this.recreate(newArgs)
+        }]
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
+
+    protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
+        return new FunctionNode(this.clauses, this.closure, newArgs)
+    }
+
+    // null stands for failed match
+    private applyClause(clause: Clause, args: SymbolicNode[]): Bindings {
+        let clauseBindings: Bindings = new Map()
+        for (const [pattern, arg] of zip(clause.patterns, args)) {
+            const patternResult = tryMatch(() => pattern(arg))
+            // pattern is not applicable for this clause
+            if (patternResult === null) return null
+            clauseBindings = new Map([...clauseBindings, ...patternResult.bindings])
+        }
+        return clauseBindings
+    }
+
+    private applySymPattern<T extends string>(pattern: Pattern, arg: Summary<T>, combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
+        const patternBindings: SymBindings<T> = new Map()
+        let patternPath: Bool<T> = null
+        for (let {path, value} of arg) {
+            const patternResult = tryMatch(() => pattern(value, context))
+            if (patternResult === null) continue
+            const argPath = (patternResult.condition === null) ? path : path.and(patternResult.condition)
+            if (patternPath === null) {
+                patternPath = argPath
+            } else {
+                patternPath = patternPath.or(argPath)
+            }
+            mergeSymBindingsInto(patternBindings, bindingsToSym(patternResult.bindings, combinedPath.and(argPath)))
+        }
+        return [patternBindings, patternPath]
     }
 
     evaluate(env: Environment): SymbolicNode {
         throw new NotImplementedError()
+    }
+
+    private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], path: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
+        let clauseBindings: SymBindings<T> = new Map()
+        let clausePath: Bool<T> = context.Bool.val(true)
+        for (const [pattern, argSummary] of zip(clause.patterns, args)) {
+            const [patternBindings, patternPath] = this.applySymPattern(pattern, argSummary, path.and(clausePath), context)
+            if (patternPath === null) return null
+            clauseBindings = new Map([...clauseBindings, ...patternBindings])
+            clausePath = clausePath.and(patternPath)
+        }
+        return [clauseBindings, clausePath]
     }
 }
 
@@ -337,13 +463,13 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
     static readonly INITIAL_DEEP_LIMIT = 7
     readonly deepLimit: number;
 
-    constructor(clauses: Clause[], closure: Environment, deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
-        super(clauses, closure)
+    constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
+        super(clauses, closure, args)
         this.deepLimit = deepLimit
     }
 
-    protected recreateClauses(newClauses: Clause[]): RecursiveFunctionNode {
-        return new RecursiveFunctionNode(newClauses, this.closure, this.deepLimit)
+    protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
+        return new RecursiveFunctionNode(this.clauses, this.closure, newArgs, this.deepLimit)
     }
 }
 
@@ -360,6 +486,15 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
     }
 
     evaluate(env: Environment): SymbolicNode {
+        throw new UnexpectedError()
+    }
+
+    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> {
+        throw new NotImplementedError()
+        // TODO
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
         throw new UnexpectedError()
     }
 }
@@ -401,6 +536,10 @@ export class TestFunctionNode extends SymbolicNode {
         throw new NotImplementedError()
     }
 
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
+
     toString() {
         return `λ${this.argName}.${this.body}`
     }
@@ -430,6 +569,10 @@ export class HoleNode extends SymbolicNode {
         throw new UnexpectedError()
     }
 
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
+
     toString() {
         return "_"
     }
@@ -451,8 +594,18 @@ export class IntegerSymbolNode extends SymbolicNode implements FormulaNode {
         return [{path, value: this}]
     }
 
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        if (other instanceof IntegerSymbolNode) {
+            return context.Int.const(this.formulaName).eq(context.Int.const(other.formulaName))
+        }
+        if (other instanceof IntegerNode) {
+            return context.Int.const(this.formulaName).eq(context.Int.val(other.value))
+        }
+        throw new UnexpectedError()
+    }
+
     toString() {
-        return "I"
+        return this.formulaName
     }
 }
 
@@ -472,7 +625,17 @@ export class StringSymbolNode extends SymbolicNode {
         return [{path, value: this}]
     }
 
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        if (other instanceof StringSymbolNode) {
+            return context.VarEqVar(this.formulaName, other.formulaName)
+        }
+        if (other instanceof StringNode) {
+            return context.VarEqString(this.formulaName, other.value)
+        }
+        throw new UnexpectedError()
+    }
+
     toString() {
-        return "S"
+        return this.formulaName
     }
 }

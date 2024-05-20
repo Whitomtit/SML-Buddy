@@ -36,11 +36,10 @@ const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings 
 export type Clause = {
     patterns: Pattern[],
     body: SymbolicNode,
-    subBindings: Bindings
 }
 const parseClause = (node: Parser.SyntaxNode, env: Environment): Clause => {
     const patterns = node.children.filter(isPattern).map((child) => parsePattern(child, env))
     const body = parseExpression(node.lastChild)
-    return {patterns, body, subBindings: new Map()}
+    return {patterns, body}
 }
 

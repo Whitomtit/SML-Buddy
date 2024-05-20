@@ -1,6 +1,6 @@
 import Heap from "heap-js";
 import {PolymorphicType, PrimitiveType, Type} from "./models/types";
-import {HoleNode, IntegerNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
+import {HoleNode, IntegerNode, IntegerSymbolNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
 import {parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
 import {Generator} from "./engine/generator";
@@ -35,15 +35,27 @@ const main = async () => {
 
     const {Context, Z3} = await init();
     const context = createCustomContext(Context('main'), Z3)
-    const {Solver, Int} = context;
 
-    const solver = new Solver();
+    const input = [{
+        path: context.Bool.val(true),
+        value: new IntegerSymbolNode("in")
+    }]
 
-    solver.add(context.assert_string_eq("x", "hello"))
-    solver.add(context.assert_string_eq("y", "world"))
-    solver.add(context.assert_string_eq("x", "hello"))
-    await solver.check();
-    console.log(solver.model().toString());
+    const checkedProgram = test_a.symbolicApply(context, input, context.Bool.val(true))
+    const referenceProgram = test_b.symbolicApply(context, input, context.Bool.val(true))
+
+    const solver = new context.Solver()
+    const formula = referenceProgram.reduce((formula, symBind) => {
+        const referenceValue = symBind.value
+        const rhe = checkedProgram.reduce((acc, symBind) => {
+            const checkedValue = symBind.value
+            return acc.or(symBind.path.and(referenceValue.eqZ3To(context, checkedValue)))
+        }, context.Bool.val(false))
+        return formula.and(symBind.path.implies(rhe))
+    }, context.Bool.val(true))
+    solver.add(formula.not())
+    await solver.check()
+    console.log(solver.model().toString())
 
     printSection("GENERATOR")
 

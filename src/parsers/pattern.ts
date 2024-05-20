@@ -178,7 +178,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                     if (node instanceof StringSymbolNode) {
                         return {
                             bindings: new Map<string, SymbolicNode>(),
-                            condition: context.assert_string_eq(node.formulaName, constant.value)
+                            condition: context.VarEqString(node.formulaName, constant.value)
                         }
                     }
                     throw new PatternMatchError()
