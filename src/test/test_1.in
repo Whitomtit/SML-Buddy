@@ -23,10 +23,21 @@ fun test 0 = nil
 
 fun cool_func n () = n;
 
-fun test_a 1 = 1
-  | test_a 2 = 3
-  | test_a n = n;
+fun test_a_ x 1 = 1
+  | test_a_ x 2 = 3
+  | test_a_ x n = n;
 
-fun test_b n = n;
+fun test_b_ x n = n;
+
+fun test_a n = f (cool_func (test_a_ (n + 1) n)) (test n)
+fun test_b n = f (cool_func (test_b_ (n * 4) n)) (test n);
+
+
+fun test_a nil = 0
+  | test_a (x::xs) = 1 + (test_a xs);
+
+fun test_b nil = 0
+  | test_b (_::_::5::nil) = 1
+  | test_b (x::xs) = 1 + (test_b xs);
 
 fun main n = f (cool_func 5) (test n);

@@ -47,47 +47,7 @@ export type Pattern = <T extends string>(node: SymbolicNode, context?: CustomCon
 export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern => {
     switch (node.type) {
         case APP_PATTERN:
-            const subPatternsApp = node.children.filter(isPattern).map((child) => parsePattern(child, env))
-            if (subPatternsApp.length === 1) {
-                // just embedding another pattern
-                return subPatternsApp[0]
-            } else if (subPatternsApp.length === 2) {
-                // constructor pattern
-                const constructorName = node.firstChild.text
-                return <T extends string>(node: SymbolicNode, context?: CustomContext<T>) => {
-                    if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
-                        throw new PatternMatchError()
-                    }
-                    return subPatternsApp[1](node.args[0], context)
-                }
-            } else if (subPatternsApp.length === 3) {
-                // infix pattern
-                const constructorName = node.children[1].text
-                return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
-                    if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
-                        throw new PatternMatchError()
-                    }
-                    // the only child is a tuple constructor
-                    const args = <ConstructorNode>node.args[0]
-                    const left = subPatternsApp[0](args.args[0], context)
-                    const right = subPatternsApp[2](args.args[1], context)
-
-                    let condition: Bool<T> = null
-                    if (left.condition !== null && right.condition !== null) {
-                        condition = left.condition.and(right.condition)
-                    } else if (left.condition !== null) {
-                        condition = left.condition
-                    } else if (right.condition !== null) {
-                        condition = right.condition
-                    }
-                    return {
-                        bindings: new Map([...left.bindings, ...right.bindings]),
-                        condition: condition
-                    }
-                }
-            } else {
-                throw new NotImplementedError("Unsupported number of subpatterns in app pattern: " + subPatternsApp.length)
-            }
+            return parseAppPattern(node.children, env)
         case PARENTHESIZED_PATTERN:
             return parsePattern(node.children[1], env)
         case VARIABLE_PATTERN:
@@ -162,7 +122,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
 
                         return {
                             bindings: new Map<string, SymbolicNode>(),
-                            condition: context.Int.const(node.formulaName).eq(constant.value)
+                            condition: node.getZ3Value(context).eq(constant.value)
                         }
                     }
                     throw new PatternMatchError()
@@ -194,6 +154,68 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
         default:
             throw new NotImplementedError()
     }
+
+}
+
+const parseAppPattern = (children: Parser.SyntaxNode[], env: Environment): Pattern => {
+    if (children.length === 1) {
+        // just embedding another pattern
+        return parsePattern(children[0], env)
+    } else if (children.length === 2) {
+        // constructor pattern
+        const constructorName = children[0].text
+        const subPattern = parsePattern(children[1], env)
+        return <T extends string>(node: SymbolicNode, context?: CustomContext<T>) => {
+            if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
+                throw new PatternMatchError()
+            }
+            return subPattern(node.args[0], context)
+        }
+    }
+    // infix including pattern
+    const leastInfixPosition = findLeastInfixPosition(children, env)
+
+    const constructorName = children[leastInfixPosition].text
+    const leftPattern = parseAppPattern(children.slice(0, leastInfixPosition), env)
+    const rightPattern = parseAppPattern(children.slice(leastInfixPosition + 1), env)
+    return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
+        if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
+            throw new PatternMatchError()
+        }
+        // the only child is a tuple constructor
+        const args = <ConstructorNode>node.args[0]
+        const left = leftPattern(args.args[0], context)
+        const right = rightPattern(args.args[1], context)
+
+        let condition: Bool<T> = null
+        if (left.condition !== null && right.condition !== null) {
+            condition = left.condition.and(right.condition)
+        } else if (left.condition !== null) {
+            condition = left.condition
+        } else if (right.condition !== null) {
+            condition = right.condition
+        }
+        return {
+            bindings: new Map([...left.bindings, ...right.bindings]),
+            condition: condition
+        }
+    }
+}
+
+const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment): number => {
+    let leastPrecedence = Infinity
+    let leastIndex = -1
+    let leastInfixType = ""
+    for (let i = 1; i < children.length; i++) {
+        const infixName = children[i].text
+        const infixData = env.infixData.get(infixName)
+        if (infixData && (infixData.precedence < leastPrecedence || (infixData.precedence === leastPrecedence && leastInfixType === "Left"))) {
+            leastPrecedence = infixData.precedence
+            leastInfixType = infixData.infix
+            leastIndex = i
+        }
+    }
+    return leastIndex
 
 }
 

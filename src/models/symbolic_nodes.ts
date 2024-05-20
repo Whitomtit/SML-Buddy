@@ -1,6 +1,6 @@
 import {PolymorphicType, TupleType, Type} from "./types";
 import {Pattern, tryMatch} from "../parsers/pattern";
-import {Bindings, Constructors, Environment, getTupleConstructorName} from "../parsers/program";
+import {Bindings, Constructors, Environment, getTupleConstructorName, InfixData} from "../parsers/program";
 import {
     BuiltinOperationError,
     NotImplementedError,
@@ -19,7 +19,7 @@ import {
     SymEnvironment,
     zip
 } from "./utils";
-import {Bool} from "z3-solver";
+import {Bool, Expr} from "z3-solver";
 import {CustomContext} from "./context";
 
 export abstract class SymbolicNode {
@@ -37,9 +37,7 @@ export abstract class SymbolicNode {
 
     abstract evaluate(env: Environment): SymbolicNode;
 
-    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
-        throw new NotImplementedError()
-    }
+    abstract summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T>
 
     abstract eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode);
 }
@@ -51,11 +49,12 @@ export interface ApplicableNode {
 }
 
 export interface ValuableNode<T> {
-    readonly value: T
+    readonly value
 }
 
-export interface FormulaNode {
-    readonly formulaName: string
+
+export interface SymValuableNode {
+    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T>
 }
 
 export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
@@ -79,7 +78,7 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
             return context.Bool.val(this.value === other.value)
         }
         if (other instanceof IntegerSymbolNode) {
-            return context.Int.const(other.formulaName).eq(context.Int.val(this.value))
+            return context.Int.val(this.value).eq(other.getZ3Value(context))
         }
         throw new UnexpectedError()
     }
@@ -171,8 +170,13 @@ export class IdentifierNode extends SymbolicNode {
         if (constructor.argType instanceof TupleType && constructor.argType.elementTypes.length === 0) {
             return new ConstructorNode([], this.name)
         }
-        return new BuiltInFunctionNode((args) =>
-            new ConstructorNode([args], this.name))
+        return new BuiltInFunctionNode(
+            (args) => new ConstructorNode([args], this.name),
+            (context, argument, path) => argument.map((symBind) => ({
+                path: symBind.path.and(path),
+                value: new ConstructorNode([symBind.value], this.name)
+            }))
+        )
     }
 
     eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
@@ -188,8 +192,8 @@ export class ApplicationNode extends SymbolicNode {
 
     readonly nodes: SymbolicNode[];
 
-    static isInfix(node: SymbolicNode, env: Environment): boolean {
-        return node instanceof IdentifierNode && !node.opped && env.infixData.has(node.name)
+    static isInfix<T>(node: (SymbolicNode | T), infixData: InfixData): boolean {
+        return node instanceof IdentifierNode && !node.opped && infixData.has(node.name)
     }
 
     size(): number {
@@ -201,8 +205,42 @@ export class ApplicationNode extends SymbolicNode {
     }
 
     evaluate(env: Environment): SymbolicNode {
+        return this.baseEvaluate<SymbolicNode>(
+            env.infixData,
+            node => node.evaluate(env),
+            (left, infix, right) => (<ApplicableNode><unknown>infix).apply(
+                new ConstructorNode([left, right], getTupleConstructorName(2))),
+            (func, arg) => (<ApplicableNode><unknown>func).apply(arg)
+        )
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        const applyFunction = (func, arg): Summary<T> =>
+            func.reduce((acc: Summary<T>, funcSymBind): Summary<T> =>
+                acc.concat((<ApplicableNode><unknown>funcSymBind.value).symbolicApply(context, arg, funcSymBind.path)), [])
+        const applyInfix = (left: Summary<T>, infix: Summary<T>, right: Summary<T>): Summary<T> =>
+            applyFunction(infix, zip(left, right).map(([l, r]) => ({
+                path: l.path.and(r.path),
+                value: new ConstructorNode([l.value, r.value], getTupleConstructorName(2))
+            })))
+        return this.baseEvaluate<Summary<T>>(
+            env.infixData,
+            node => node.summarize(context, env, path),
+            applyInfix,
+            applyFunction
+        )
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
+
+    private baseEvaluate<T>(infixData: InfixData,
+                            evaluateNode: (node: SymbolicNode) => T,
+                            applyInfix: (left: T, infix: T, right: T) => T,
+                            applyFunction: (func: T, arg: T) => T): T {
         const inputStack = [...this.nodes].reverse()
-        const workStack: SymbolicNode[] = []
+        const workStack: (SymbolicNode | T)[] = []
 
         // always have at least one node in input stack for lookahead
         while (inputStack.length !== 0) {
@@ -210,17 +248,17 @@ export class ApplicationNode extends SymbolicNode {
             const lookahead = inputStack[inputStack.length - 1]
 
             // push infix to work stack if no reduce
-            if (ApplicationNode.isInfix(node, env)) {
+            if (ApplicationNode.isInfix(node, infixData)) {
                 if (workStack.length >= 3) {
-                    const leftInfix = env.infixData.get((<IdentifierNode>workStack[workStack.length - 2]).name)
-                    const rightInfix = env.infixData.get((<IdentifierNode>node).name)
+                    const leftInfix = infixData.get((<IdentifierNode>workStack[workStack.length - 2]).name)
+                    const rightInfix = infixData.get((<IdentifierNode>node).name)
 
                     if (leftInfix.precedence > rightInfix.precedence ||
                         (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
-                        const rightArg = workStack.pop()
-                        const func = <ApplicableNode><unknown>workStack.pop().evaluate(env)
-                        const leftArg = workStack.pop()
-                        workStack.push(func.apply(new ConstructorNode([leftArg, rightArg], getTupleConstructorName(2))))
+                        const rightArg = workStack.pop() as T
+                        const func = evaluateNode(workStack.pop() as SymbolicNode)
+                        const leftArg = workStack.pop() as T
+                        workStack.push(applyInfix(leftArg, func, rightArg))
                         // return input
                         inputStack.push(node)
                         continue
@@ -232,55 +270,43 @@ export class ApplicationNode extends SymbolicNode {
 
             // if work stack is empty just evaluate
             if (workStack.length === 0) {
-                workStack.push(node.evaluate(env))
+                workStack.push(evaluateNode(node))
                 continue
             }
 
             const workTop = workStack[workStack.length - 1]
             // if previous node is not infix, it's applicable and has higher precedence than infix
-            if (!ApplicationNode.isInfix(workTop, env)) {
-                const func = <ApplicableNode><unknown>workStack.pop()
-                workStack.push(func.apply(node.evaluate(env)))
+            if (!ApplicationNode.isInfix(workTop, infixData)) {
+                const func = workStack.pop() as T
+                workStack.push(applyFunction(func, evaluateNode(node)))
                 continue
             }
             // if previous node is infix and the next node is not, we skip
-            if (!ApplicationNode.isInfix(lookahead, env)) {
-                workStack.push(node.evaluate(env))
+            if (!ApplicationNode.isInfix(lookahead, infixData)) {
+                workStack.push(evaluateNode(node))
                 continue
             }
             // both lookahead and work top are infix, thus compare precedence
-            const leftInfix = env.infixData.get((<IdentifierNode>workTop).name)
-            const rightInfix = env.infixData.get((<IdentifierNode>lookahead).name)
+            const leftInfix = infixData.get((<IdentifierNode>workTop).name)
+            const rightInfix = infixData.get((<IdentifierNode>lookahead).name)
 
             if (leftInfix.precedence > rightInfix.precedence ||
                 (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
-                const func = <ApplicableNode><unknown>workStack.pop().evaluate(env)
-                const leftArg = workStack.pop()
-                const rightArg = node.evaluate(env)
-                workStack.push(func.apply(new ConstructorNode([leftArg, rightArg], getTupleConstructorName(2))))
+                const func = evaluateNode(workStack.pop() as SymbolicNode)
+                const leftArg = workStack.pop() as T
+                const rightArg = evaluateNode(node)
+                workStack.push(applyInfix(leftArg, func, rightArg))
                 continue
             }
-            workStack.push(node.evaluate(env))
+            workStack.push(evaluateNode(node))
         }
         while (workStack.length > 1) {
-            const rightArg = workStack.pop()
-            const func = <ApplicableNode><unknown>workStack.pop().evaluate(env)
-            const leftArg = workStack.pop()
-            workStack.push(func.apply(new ConstructorNode([leftArg, rightArg], getTupleConstructorName(2))))
+            const rightArg = workStack.pop() as T
+            const func = evaluateNode(workStack.pop() as SymbolicNode)
+            const leftArg = workStack.pop() as T
+            workStack.push(applyInfix(leftArg, func, rightArg))
         }
-        return workStack[0]
-    }
-
-    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
-        // TODO
-        if (this.nodes.length === 1) {
-            return this.nodes[0].summarize(context, env, path)
-        }
-        super.summarize(context, env, path)
-    }
-
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
-        throw new UnexpectedError()
+        return workStack[0] as T
     }
 }
 
@@ -352,7 +378,6 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     holesNumber(): number {
-        // TODO binds contains holes?
         return this.clauses.reduce((acc, clause) => acc + clause.body.holesNumber(), 0);
     }
 
@@ -375,6 +400,9 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> {
+        const preHook = this.preSymbolicApplyHook<T>(path)
+        if (preHook !== null) return preHook
+
         const newArgs = [...this.args, argument] as Summary<T>[]
         if (this.clauses[0].patterns.length === 1 + this.args.length) {
             // TODO check it
@@ -390,8 +418,11 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                     constructors: this.closure.constructors,
                     infixData: this.closure.infixData
                 }
+                const callPath = combinedPath.and(matchPath)
 
-                summary.push(...clause.body.summarize(context, env, combinedPath.and(matchPath)))
+                this.postEnvHook(env, callPath)
+
+                summary.push(...clause.body.summarize(context, env, callPath))
                 combinedPath = combinedPath.and(matchPath.not())
             }
             if (summary.length === 0) {
@@ -409,11 +440,28 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         throw new UnexpectedError()
     }
 
+    evaluate(env: Environment): SymbolicNode {
+        throw new NotImplementedError()
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        throw new NotImplementedError()
+    }
+
+    protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
+        return null
+    }
+
     protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
         return new FunctionNode(this.clauses, this.closure, newArgs)
     }
 
+    protected postEnvHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>) {
+        return
+    }
+
     // null stands for failed match
+
     private applyClause(clause: Clause, args: SymbolicNode[]): Bindings {
         let clauseBindings: Bindings = new Map()
         for (const [pattern, arg] of zip(clause.patterns, args)) {
@@ -442,10 +490,6 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         return [patternBindings, patternPath]
     }
 
-    evaluate(env: Environment): SymbolicNode {
-        throw new NotImplementedError()
-    }
-
     private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], path: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
         let clauseBindings: SymBindings<T> = new Map()
         let clausePath: Bool<T> = context.Bool.val(true)
@@ -462,23 +506,40 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
 export class RecursiveFunctionNode extends FunctionNode implements ApplicableNode {
     static readonly INITIAL_DEEP_LIMIT = 7
     readonly deepLimit: number;
+    name: string
 
-    constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
+    constructor(name: string, clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
         super(clauses, closure, args)
+        this.name = name
         this.deepLimit = deepLimit
     }
 
     protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
-        return new RecursiveFunctionNode(this.clauses, this.closure, newArgs, this.deepLimit)
+        return new RecursiveFunctionNode(this.name, this.clauses, this.closure, newArgs, this.deepLimit)
+    }
+
+    protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
+        if (this.deepLimit === 0) return [{path, value: new BottomNode()}]
+        return super.preSymbolicApplyHook(path)
+    }
+
+    protected postEnvHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>) {
+        env.bindings.set(this.name, [{
+            path,
+            value: new RecursiveFunctionNode(this.name, this.clauses, this.closure, [], this.deepLimit - 1)
+        }])
     }
 }
 
 export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode {
     readonly func: (args: SymbolicNode) => SymbolicNode;
+    readonly symFunc: <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>) => Summary<T>;
 
-    constructor(func: (args: SymbolicNode) => SymbolicNode) {
+    constructor(func: (args: SymbolicNode) => SymbolicNode,
+                symFunc: <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>) => Summary<T>) {
         super();
         this.func = func;
+        this.symFunc = symFunc
     }
 
     apply(argument: SymbolicNode): SymbolicNode {
@@ -486,12 +547,15 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
     }
 
     evaluate(env: Environment): SymbolicNode {
-        throw new UnexpectedError()
+        return this
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return [{path, value: this}]
     }
 
     symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> {
-        throw new NotImplementedError()
-        // TODO
+        return this.symFunc(context, argument, path)
     }
 
     eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
@@ -499,8 +563,14 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
     }
 }
 
-export class BuiltInBinopNode<BaseType, NodeType extends SymbolicNode & ValuableNode<BaseType>> extends BuiltInFunctionNode {
-    constructor(func: (a: BaseType, b: BaseType) => BaseType, nodeType: Constructor<NodeType>) {
+export class BuiltInBinopNode<BaseType, NodeType extends SymbolicNode & ValuableNode<BaseType>, SymNodeType extends SymbolicNode & SymValuableNode> extends BuiltInFunctionNode {
+    constructor(
+        func: (a: BaseType, b: BaseType) => BaseType,
+        symFunc: <T extends string>(a: Expr<T>, b: Expr<T>) => Expr<T>,
+        symValue: <T extends string>(value: BaseType, context: CustomContext<T>) => Expr<T>,
+        nodeType: Constructor<NodeType>,
+        symNodeType: Constructor<SymNodeType>
+    ) {
         super((node): SymbolicNode => {
             if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
                 throw new BuiltinOperationError("Expected tuple with two elements")
@@ -510,7 +580,32 @@ export class BuiltInBinopNode<BaseType, NodeType extends SymbolicNode & Valuable
                 throw new BuiltinOperationError("expected two arguments of type " + nodeType.toString())
             }
             return new nodeType(func((<NodeType>a).value, (<NodeType>b).value))
-        });
+        }, <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> => {
+            return argument.reduce((acc: Summary<T>, symBind) => {
+                const node = symBind.value
+                const nodePath = symBind.path.and(path)
+                if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
+                    throw new BuiltinOperationError("Expected tuple with two elements")
+                }
+                const [a, b] = node.args
+                if (a instanceof nodeType && b instanceof nodeType) {
+                    return acc.concat({
+                        path: nodePath,
+                        value: new nodeType(func((<NodeType>a).value, (<NodeType>b).value))
+                    })
+                }
+                if ((!(a instanceof symNodeType) && !(a instanceof nodeType)) || (!(b instanceof symNodeType) && !(b instanceof nodeType))) {
+                    throw new BuiltinOperationError("expected two arguments of type " + symNodeType.toString() + " or " + nodeType.toString())
+                }
+                const aExpr = a instanceof symNodeType ? (<SymNodeType>a).getZ3Value(context) : symValue((<NodeType>a).value, context) as Expr<T>
+                const bExpr = b instanceof symNodeType ? (<SymNodeType>b).getZ3Value(context) : symValue((<NodeType>b).value, context) as Expr<T>
+
+                return acc.concat({
+                    path: nodePath,
+                    value: new symNodeType((_) => symFunc(aExpr, bExpr))
+                })
+            }, [])
+        })
     }
 }
 
@@ -533,7 +628,11 @@ export class TestFunctionNode extends SymbolicNode {
     }
 
     evaluate(env: Environment): SymbolicNode {
-        throw new NotImplementedError()
+        throw new UnexpectedError()
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        throw new UnexpectedError()
     }
 
     eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
@@ -578,13 +677,15 @@ export class HoleNode extends SymbolicNode {
     }
 }
 
-export class IntegerSymbolNode extends SymbolicNode implements FormulaNode {
-    readonly formulaName: string;
+export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
+    readonly valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>;
 
-    constructor(formulaName: string) {
+    constructor(valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>) {
         super();
-        this.formulaName = formulaName;
+        this.valueSupplier = valueSupplier
     }
+
+    static readonly fromVarName = (varName: string) => new IntegerSymbolNode((context) => context.Int.const(varName))
 
     evaluate(env: Environment): SymbolicNode {
         throw new UnexpectedError()
@@ -596,16 +697,20 @@ export class IntegerSymbolNode extends SymbolicNode implements FormulaNode {
 
     eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
         if (other instanceof IntegerSymbolNode) {
-            return context.Int.const(this.formulaName).eq(context.Int.const(other.formulaName))
+            return this.getZ3Value(context).eq(other.getZ3Value(context))
         }
         if (other instanceof IntegerNode) {
-            return context.Int.const(this.formulaName).eq(context.Int.val(other.value))
+            return this.getZ3Value(context).eq(context.Int.val(other.value))
         }
         throw new UnexpectedError()
     }
 
+    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
+        return this.valueSupplier(context)
+    }
+
     toString() {
-        return this.formulaName
+        return "I"
     }
 }
 
@@ -637,5 +742,19 @@ export class StringSymbolNode extends SymbolicNode {
 
     toString() {
         return this.formulaName
+    }
+}
+
+export class BottomNode extends SymbolicNode {
+    evaluate(env: Environment): SymbolicNode {
+        throw new UnexpectedError()
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        throw new UnexpectedError()
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
     }
 }

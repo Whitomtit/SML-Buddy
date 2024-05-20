@@ -22,14 +22,14 @@ const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings 
     // drop function name
     const namePattern = clauses[0].patterns[0]
     clauses.forEach((clause) => clause.patterns.shift())
-
-    const functionNode = new RecursiveFunctionNode(clauses, {
+    const functionNode = new RecursiveFunctionNode(null, clauses, {
         bindings: new Map(env.bindings),
         constructors: new Map(env.constructors),
         infixData: new Map(env.infixData)
     })
     const nameBind = namePattern(functionNode)
     functionNode.closure.bindings = new Map([...functionNode.closure.bindings, ...nameBind.bindings])
+    functionNode.name = nameBind.bindings.keys().next().value
     return nameBind.bindings
 }
 

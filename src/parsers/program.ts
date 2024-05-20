@@ -2,10 +2,11 @@ import Parser from "tree-sitter";
 import {isDeclaration, parseFunctionDeclaration} from "./declaration";
 import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
-import {BuiltInBinopNode, IntegerNode, StringNode, SymbolicNode} from "../models/symbolic_nodes";
+import {BuiltInBinopNode, IntegerNode, IntegerSymbolNode, SymbolicNode} from "../models/symbolic_nodes";
 import {DATATYPE_DECLARATION, FUNCTION_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 import {NotImplementedError, UnexpectedError} from "../models/errors";
+import {Arith, Expr} from "z3-solver";
 
 export type InfixType = "Left" | "Right"
 export type Infix = {
@@ -27,7 +28,7 @@ const a = new PolymorphicType()
 const b = new PolymorphicType()
 const c = new PolymorphicType()
 
-const list = new PrimitiveType("list")
+export const list = new PrimitiveType("list")
 
 export const parseProgram = (program: string): Environment => {
     const parser = new Parser();
@@ -38,12 +39,32 @@ export const parseProgram = (program: string): Environment => {
     traverse(parseTree.rootNode)
 
     const initialBindings: Bindings = new Map([
-        ["+", new BuiltInBinopNode<number, IntegerNode>((a, b) => a + b, IntegerNode)],
-        ["-", new BuiltInBinopNode<number, IntegerNode>((a, b) => a - b, IntegerNode)],
-        ["*", new BuiltInBinopNode<number, IntegerNode>((a, b) => a * b, IntegerNode)],
-        ["div", new BuiltInBinopNode<number, IntegerNode>((a, b) => Math.floor(a / b), IntegerNode)],
-        ["mod", new BuiltInBinopNode<number, IntegerNode>((a, b) => a % b, IntegerNode)],
-        ["^", new BuiltInBinopNode<string, StringNode>((a, b) => a + b, StringNode)],
+        ["+", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
+            (a, b) => a + b,
+            <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).add((b as Arith<T>)),
+            <T extends string>(a, context) => context.Int.val(a),
+            IntegerNode, IntegerSymbolNode)],
+        ["-", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
+            (a, b) => a - b,
+            <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).sub((b as Arith<T>)),
+            <T extends string>(a, context) => context.Int.val(a),
+            IntegerNode, IntegerSymbolNode)],
+        ["*", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
+            (a, b) => a * b,
+            <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).mul((b as Arith<T>)),
+            <T extends string>(a, context) => context.Int.val(a),
+            IntegerNode, IntegerSymbolNode)],
+        ["div", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
+            (a, b) => Math.floor(a / b),
+            <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).div((b as Arith<T>)),
+            <T extends string>(a, context) => context.Int.val(a),
+            IntegerNode, IntegerSymbolNode)],
+        ["mod", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
+            (a, b) => a % b,
+            <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).mod((b as Arith<T>)),
+            <T extends string>(a, context) => context.Int.val(a),
+            IntegerNode, IntegerSymbolNode)],
+        // ["^", new BuiltInBinopNode<string, StringNode, StringSymbolNode>((a, b) => a + b, StringNode)],
     ])
     const initialConstructors: Constructors = new Map([
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],

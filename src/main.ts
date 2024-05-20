@@ -1,14 +1,15 @@
 import Heap from "heap-js";
-import {PolymorphicType, PrimitiveType, Type} from "./models/types";
-import {HoleNode, IntegerNode, IntegerSymbolNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
-import {parseProgram} from "./parsers/program";
+import {CompoundType, PolymorphicType, PrimitiveType, Type} from "./models/types";
+import {HoleNode, IntegerNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
+import {list, parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
 import {Generator} from "./engine/generator";
 import {init} from "z3-solver";
 import {createCustomContext} from "./models/context";
+import {SymbolicExecutor} from "./engine/symbolicExecutor";
 
 const main = async () => {
-    const targetType = PrimitiveType.INT
+    const targetType = new CompoundType(PrimitiveType.INT, list)
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
 
@@ -30,32 +31,11 @@ const main = async () => {
     printSection("SYMBOLIC SUMMARIES")
     const test_a = <RecursiveFunctionNode>env.bindings.get("test_a")
     const test_b = <RecursiveFunctionNode>env.bindings.get("test_b")
-    console.log(test_a.apply(new IntegerNode(2)).toString())
-    console.log(test_b.apply(new IntegerNode(2)).toString())
 
     const {Context, Z3} = await init();
     const context = createCustomContext(Context('main'), Z3)
 
-    const input = [{
-        path: context.Bool.val(true),
-        value: new IntegerSymbolNode("in")
-    }]
-
-    const checkedProgram = test_a.symbolicApply(context, input, context.Bool.val(true))
-    const referenceProgram = test_b.symbolicApply(context, input, context.Bool.val(true))
-
-    const solver = new context.Solver()
-    const formula = referenceProgram.reduce((formula, symBind) => {
-        const referenceValue = symBind.value
-        const rhe = checkedProgram.reduce((acc, symBind) => {
-            const checkedValue = symBind.value
-            return acc.or(symBind.path.and(referenceValue.eqZ3To(context, checkedValue)))
-        }, context.Bool.val(false))
-        return formula.and(symBind.path.implies(rhe))
-    }, context.Bool.val(true))
-    solver.add(formula.not())
-    await solver.check()
-    console.log(solver.model().toString())
+    const symbolicExecutor = new SymbolicExecutor(context, test_b, test_a, env)
 
     printSection("GENERATOR")
 
@@ -63,13 +43,20 @@ const main = async () => {
     while (minHeap.size() > 0) {
         const testCase = minHeap.pop()
         if (testCase.isGround()) {
-            console.log(testCase.toString())
+            console.log("CHECKING ", testCase.toString())
+            const checkResult = await symbolicExecutor.check(testCase)
+            if (checkResult) {
+                console.log("FOUND")
+                console.log(testCase.toString())
+                console.log(checkResult.toString())
+                break
+            }
             continue
         }
 
         generator.generate(testCase, minHeap)
 
-        if (testCase.size() >= 10) break
+        // if (testCase.size() >= 10) break
     }
     printSection("END")
 }

@@ -12,7 +12,7 @@ import {AddableContainer, Interception} from "../models/containers";
 import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "../models/types";
 import {BINARY_OPS, substitute} from "../models/utils";
 import {MergeError, UnexpectedError} from "../models/errors";
-import {Constructors} from "../parsers/program";
+import {Constructors, getTupleConstructorName} from "../parsers/program";
 
 export class Generator {
     private readonly constructors: Constructors
@@ -30,7 +30,7 @@ export class Generator {
             // E-Num
             tryMerge((substitution) => {
                 testCase.type.mergeWith(PrimitiveType.INT, substitution)
-                minHeap.push(new IntegerSymbolNode(this.freshFormulaName()))
+                minHeap.push(IntegerSymbolNode.fromVarName(this.freshFormulaName()))
 
                 if (testCase.env.size === 0) return
 
@@ -63,14 +63,12 @@ export class Generator {
                     const freshType = consType.clone(new Map())
                     testCase.type.mergeWith(freshType.returnType, substitution)
 
-                    let args: SymbolicNode[]
                     if (freshType.argType instanceof TupleType) {
-                        args = freshType.argType.elementTypes.map((type) => new HoleNode(type, testCase.env, substitution))
+                        const args = freshType.argType.elementTypes.map((type) => new HoleNode(type, testCase.env, substitution))
+                        minHeap.push(new ConstructorNode([new ConstructorNode(args, getTupleConstructorName(args.length))], consName))
                     } else {
-                        args = [new HoleNode(freshType.argType, testCase.env, substitution)]
+                        minHeap.push(new ConstructorNode([new HoleNode(freshType.argType, testCase.env, substitution)], consName))
                     }
-
-                    minHeap.push(new ConstructorNode(args, consName))
                 }, testCase)
             }
 
