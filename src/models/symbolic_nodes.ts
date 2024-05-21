@@ -461,7 +461,6 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     // null stands for failed match
-
     private applyClause(clause: Clause, args: SymbolicNode[]): Bindings {
         let clauseBindings: Bindings = new Map()
         for (const [pattern, arg] of zip(clause.patterns, args)) {

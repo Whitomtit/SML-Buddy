@@ -11,6 +11,8 @@ import {
 import {
     APP_PATTERN,
     CONSTANT_PATTERN,
+    CONSTRAIN_PATTERN,
+    LIST_PATTERN,
     OP_PATTERN,
     OR_PATTERN,
     PARENTHESIZED_PATTERN,
@@ -25,6 +27,7 @@ import {parseConstant} from "./constant";
 import {NotImplementedError} from "../models/errors";
 import {Bool} from "z3-solver";
 import {CustomContext} from "../models/context";
+import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
 
 type PatternResult<T extends string> = {
     bindings: Bindings
@@ -56,15 +59,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
             const constructor = env.constructors.get(name)
             // zero parameter constructor
             if (constructor) {
-                return <T extends string>(node: SymbolicNode): PatternResult<T> => {
-                    if (!(node instanceof ConstructorNode) || node.name !== name) {
-                        throw new PatternMatchError()
-                    }
-                    return {
-                        bindings: new Map<string, SymbolicNode>(),
-                        condition: null
-                    }
-                }
+                return parameterlessConstructorPattern(name)
             }
             return <T extends string>(node: SymbolicNode) => ({
                 bindings: new Map<string, SymbolicNode>([[name, node]]),
@@ -146,6 +141,14 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
             } else {
                 throw new NotImplementedError("Unsupported constant type: " + constant)
             }
+        case LIST_PATTERN:
+            const listElements = node.children.filter(isPattern).map((child) => parsePattern(child, env))
+            return listElements.reduceRight(
+                (acc, subPattern) => infixConstructorPattern(LIST_CONSTRUCTOR_NAME, subPattern, acc),
+                parameterlessConstructorPattern(LIST_NIL_NAME)
+            )
+        case CONSTRAIN_PATTERN:
+            return parsePattern(node.firstChild, env)
         case WILD_PATTERN:
             return <T extends string>(): PatternResult<T> => ({
                 bindings: new Map<string, SymbolicNode>(),
@@ -178,14 +181,18 @@ const parseAppPattern = (children: Parser.SyntaxNode[], env: Environment): Patte
     const constructorName = children[leastInfixPosition].text
     const leftPattern = parseAppPattern(children.slice(0, leastInfixPosition), env)
     const rightPattern = parseAppPattern(children.slice(leastInfixPosition + 1), env)
-    return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
+    return infixConstructorPattern(constructorName, leftPattern, rightPattern)
+}
+
+const infixConstructorPattern = (constructorName: string, leftPattern: Pattern, rightPattern: Pattern): Pattern =>
+    <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
         if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
             throw new PatternMatchError()
         }
         // the only child is a tuple constructor
-        const args = <ConstructorNode>node.args[0]
-        const left = leftPattern(args.args[0], context)
-        const right = rightPattern(args.args[1], context)
+        const tuple = <ConstructorNode>node.args[0]
+        const left = leftPattern(tuple.args[0], context)
+        const right = rightPattern(tuple.args[1], context)
 
         let condition: Bool<T> = null
         if (left.condition !== null && right.condition !== null) {
@@ -200,7 +207,18 @@ const parseAppPattern = (children: Parser.SyntaxNode[], env: Environment): Patte
             condition: condition
         }
     }
-}
+
+const parameterlessConstructorPattern = (constructorName: string): Pattern =>
+    <T extends string>(node: SymbolicNode): PatternResult<T> => {
+        if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
+            throw new PatternMatchError()
+        }
+        return {
+            bindings: new Map<string, SymbolicNode>(),
+            condition: null
+        }
+    }
+
 
 const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment): number => {
     let leastPrecedence = Infinity

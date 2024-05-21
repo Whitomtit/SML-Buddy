@@ -7,6 +7,7 @@ import {DATATYPE_DECLARATION, FUNCTION_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 import {NotImplementedError, UnexpectedError} from "../models/errors";
 import {Arith, Expr} from "z3-solver";
+import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
 
 export type InfixType = "Left" | "Right"
 export type Infix = {
@@ -70,8 +71,8 @@ export const parseProgram = (program: string): Environment => {
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],
         [getTupleConstructorName(2), new FunctionType(new TupleType([a, b]), new TupleType([a, b]))],
         [getTupleConstructorName(3), new FunctionType(new TupleType([a, b, c]), new TupleType([a, b, c]))],
-        ['::', new FunctionType(new TupleType([a, new CompoundType(a, list)]), new CompoundType(a, list))],
-        ['nil', new FunctionType(new TupleType([]), new CompoundType(a, list))],
+        [LIST_CONSTRUCTOR_NAME, new FunctionType(new TupleType([a, new CompoundType(a, list)]), new CompoundType(a, list))],
+        [LIST_NIL_NAME, new FunctionType(new TupleType([]), new CompoundType(a, list))],
     ])
     const initialInfixData: InfixData = new Map<string, Infix>([
         ["*", {infix: "Left", precedence: 7}],
@@ -81,7 +82,7 @@ export const parseProgram = (program: string): Environment => {
         ["+", {infix: "Left", precedence: 6}],
         ["-", {infix: "Left", precedence: 6}],
         ["^", {infix: "Left", precedence: 6}],
-        ["::", {infix: "Right", precedence: 5}],
+        [LIST_CONSTRUCTOR_NAME, {infix: "Right", precedence: 5}],
         ["@", {infix: "Right", precedence: 5}],
         ["=", {infix: "Left", precedence: 4}],
         ["<>", {infix: "Left", precedence: 4}],

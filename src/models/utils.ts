@@ -7,6 +7,9 @@ export type Constructor<T> = new (...args: any[]) => T;
 
 export const BINARY_OPS = ['+', '-', '*', 'div', 'mod'];
 
+export const LIST_CONSTRUCTOR_NAME = "::"
+export const LIST_NIL_NAME = "nil"
+
 export const substitute = (type: Type, substitution: Map<PolymorphicType, Type>): Type => {
     if (type instanceof PolymorphicType) {
         return substitution.get(type) || type;

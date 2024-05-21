@@ -3,7 +3,9 @@ import Parser from "tree-sitter";
 import {
     APP_EXPRESSION,
     CONSTANT_EXPRESSION,
+    CONSTRAINT_EXPRESSION,
     EXPRESSIONS,
+    LIST_EXPRESSION,
     OP_EXPRESSION,
     RECORD_UNIT_EXPRESSION,
     SEQUENCE_EXPRESSION,
@@ -14,6 +16,7 @@ import {
 import {parseConstant} from "./constant";
 import {getTupleConstructorName} from "./program";
 import {NotImplementedError} from "../models/errors";
+import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
 
 export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
     switch (node.type) {
@@ -36,6 +39,15 @@ export const parseExpression = (node: Parser.SyntaxNode): SymbolicNode => {
                 return seqExpressions[0]
             // TODO support real sequence expressions
             throw new NotImplementedError()
+        case LIST_EXPRESSION:
+            const listExpressions = node.children.filter(isExpression).map(parseExpression)
+            return listExpressions.reduceRight(
+                (acc, expr) => new ConstructorNode(
+                    [new ConstructorNode([expr, acc], getTupleConstructorName(2))],
+                    LIST_CONSTRUCTOR_NAME),
+                new ConstructorNode([], LIST_NIL_NAME))
+        case CONSTRAINT_EXPRESSION:
+            return parseExpression(node.firstChild)
         default:
             throw new NotImplementedError("Expression not implemented: " + node.type + " || " + node.text)
     }

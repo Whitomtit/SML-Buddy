@@ -48,7 +48,6 @@ export const TYPES = [TUPLE_TYPE, FUNCTION_TYPE, POLYMORPHIC_TYPE, RECORD_TYPE, 
 
 // TODO implement
 export const AS_PATTERN = "as_pat";
-// TODO implement
 export const CONSTRAIN_PATTERN = "constraint_pat";
 export const APP_PATTERN = "app_pat";
 export const PARENTHESIZED_PATTERN = "paren_pat";
@@ -61,7 +60,6 @@ export const OP_PATTERN = "op_pat";
 export const ACCESS_PATTERN = "access_pat";
 export const CONSTANT_PATTERN = "constant_pat";
 export const WILD_PATTERN = "wild_pat";
-// TODO implement
 export const LIST_PATTERN = "list_pat";
 // TODO implement
 export const VECTOR_PATTERN = "vector_pat";
@@ -87,9 +85,9 @@ export const HANDLE_EXPRESSION = "handle_exp";
 export const ORELSE_EXPRESSION = "orelse_exp";
 // TODO implement
 export const ANDALSO_EXPRESSION = "andalso_exp";
-// TODO implement
 export const CONSTRAINT_EXPRESSION = "constraint_exp";
 export const APP_EXPRESSION = "app_exp";
+// TODO implement
 export const FN_EXPRESSION = "fn_exp";
 // TODO implement
 export const CASE_EXPRESSION = "case_exp";
@@ -111,10 +109,8 @@ export const SELECTOR_EXPRESSION = "selector_exp";
 export const RECORD_EXPRESSION = "rec_exp";
 export const RECORD_UNIT_EXPRESSION = "rec_unit_exp";
 export const TUPLE_UNIT_EXPRESSION = "tuple_unit_exp";
-// TODO implement
 export const SEQUENCE_EXPRESSION = "seq_exp";
 export const TUPLE_EXPRESSION = "tuple_exp";
-// TODO implement
 export const LIST_EXPRESSION = "list_exp";
 // TODO implement
 export const VECTOR_EXPRESSION = "vector_exp";
