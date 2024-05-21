@@ -35,18 +35,6 @@ type PatternResult<T extends string> = {
 }
 export type Pattern = <T extends string>(node: SymbolicNode, context?: CustomContext<T>) => PatternResult<T>
 
-// export const parseMatch = (node: Parser.SyntaxNode, env: Environment): PatternMatchNode => {
-//     const cases = node.children
-//         .filter(child => child.type === CASE).map(child => parseRule(child, env))
-//     return new PatternMatchNode(cases)
-// }
-//
-// const parseRule = (node: Parser.SyntaxNode, env: Environment): { pattern: Pattern, body: SymbolicNode } => {
-//     const pattern = parsePattern(node.children[0], env)
-//     const body = parseExpression(node.children[2])
-//     return {pattern, body}
-// }
-
 export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern => {
     switch (node.type) {
         case APP_PATTERN:
@@ -155,7 +143,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                 condition: null
             })
         default:
-            throw new NotImplementedError()
+            throw new NotImplementedError("Pattern not implemented: " + node.type + " || " + node.text)
     }
 
 }

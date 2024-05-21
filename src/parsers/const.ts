@@ -24,16 +24,11 @@ export const DECLARATIONS = [
 
 export const DATATYPE_BIND = "db"
 export const CONSTRUCTOR = "constr";
-export const VALUE_BIND = "vb";
 export const FUNCTION_BIND = "fb";
 export const CLAUSE = "clause";
-export const CASE = "case";
-
-export const ALPHANUMERIC = "ident";
-export const SYMBOLIC = "symbolic";
+export const RULE = "rule";
 
 export const OP = "op"
-export const REC = "rec"
 
 export const POLYMORPHIC_TYPE_SEQUENCE = "tyvar_seq";
 
@@ -87,9 +82,7 @@ export const ORELSE_EXPRESSION = "orelse_exp";
 export const ANDALSO_EXPRESSION = "andalso_exp";
 export const CONSTRAINT_EXPRESSION = "constraint_exp";
 export const APP_EXPRESSION = "app_exp";
-// TODO implement
 export const FN_EXPRESSION = "fn_exp";
-// TODO implement
 export const CASE_EXPRESSION = "case_exp";
 // TODO implement
 export const WHILE_EXPRESSION = "while_exp";

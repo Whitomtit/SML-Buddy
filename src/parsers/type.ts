@@ -38,8 +38,7 @@ export const parseType = (node: Parser.SyntaxNode, typeMap: Map<string, Type>): 
     } else if (node.type === POLYMORPHIC_TYPE || node.type === WRAPPED_POLYMORPHIC_TYPE) {
         return typeMap.get(node.text)
     } else if (node.type === RECORD_TYPE) {
-        // TODO implement record type
-        throw new NotImplementedError()
+        throw new NotImplementedError("Record type not implemented")
     } else if (node.type === CONSTRUCTOR_TYPE) {
         const types = node.children
             .filter(isTypeNode)

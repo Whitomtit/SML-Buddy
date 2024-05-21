@@ -33,11 +33,9 @@ fun test_a n = f (cool_func (test_a_ (n + 1) n)) (test n)
 fun test_b n = f (cool_func (test_b_ (n * 4) n)) (test n);
 
 
-fun test_a [] = 0
-  | test_a (x::xs) = op+ (1, (test_a xs));
+fun test_a l = case l of [] => 0 | (_::xs) => op+ (1, (test_a xs))
 
 fun test_b ([]:string list) = 0
-  | test_b (["DD", _, "hello"]:string list) = 1
-  | test_b (x::xs) = 1 + (test_b xs);
+  | test_b (x::xs) = (fn (["DD", _, "hello"]:string list) => 1 | _ => 1 + (test_b xs)) xs;
 
-fun main n = f (cool_func 5) ([1,2,3,4,5]:int list);
+fun main n = f (fn () => 5) ([1,2,3,4,5]:int list);

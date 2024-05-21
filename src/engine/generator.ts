@@ -64,6 +64,10 @@ export class Generator {
                     testCase.type.mergeWith(freshType.returnType, substitution)
 
                     if (freshType.argType instanceof TupleType) {
+                        if (freshType.argType.elementTypes.length === 0) {
+                            minHeap.push(new ConstructorNode([], consName))
+                            return
+                        }
                         const args = freshType.argType.elementTypes.map((type) => new HoleNode(type, testCase.env, substitution))
                         minHeap.push(new ConstructorNode([new ConstructorNode(args, getTupleConstructorName(args.length))], consName))
                     } else {

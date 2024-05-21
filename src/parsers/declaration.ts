@@ -39,7 +39,7 @@ export type Clause = {
 }
 const parseClause = (node: Parser.SyntaxNode, env: Environment): Clause => {
     const patterns = node.children.filter(isPattern).map((child) => parsePattern(child, env))
-    const body = parseExpression(node.lastChild)
+    const body = parseExpression(node.lastChild, env)
     return {patterns, body}
 }
 

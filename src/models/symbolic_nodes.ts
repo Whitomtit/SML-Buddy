@@ -3,7 +3,6 @@ import {Pattern, tryMatch} from "../parsers/pattern";
 import {Bindings, Constructors, Environment, getTupleConstructorName, InfixData} from "../parsers/program";
 import {
     BuiltinOperationError,
-    NotImplementedError,
     PatternMatchingNotExhaustiveError,
     UnexpectedError,
     VariableNotDefinedError
@@ -364,13 +363,15 @@ export class ConstructorNode extends SymbolicNode {
 export class FunctionNode extends SymbolicNode implements ApplicableNode {
     readonly clauses: Clause[];
     readonly closure: Environment;
+    readonly symBinds: SymBindings<any>;
     readonly args: (SymbolicNode | Summary<any>)[];
 
-    constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = []) {
+    constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null) {
         super();
         this.clauses = clauses
         this.closure = closure
         this.args = args
+        this.symBinds = symBinds
     }
 
     size(): number {
@@ -405,8 +406,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
 
         const newArgs = [...this.args, argument] as Summary<T>[]
         if (this.clauses[0].patterns.length === 1 + this.args.length) {
-            // TODO check it
-            const closureBinds = bindingsToSym(this.closure.bindings, context.Bool.val(true))
+            const closureBinds = (this.symBinds === null) ? bindingsToSym(this.closure.bindings, context.Bool.val(true)) : this.symBinds
             const summary: Summary<T> = []
             let combinedPath = path
             for (const clause of this.clauses) {
@@ -441,11 +441,22 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     evaluate(env: Environment): SymbolicNode {
-        throw new NotImplementedError()
+        return new FunctionNode(this.clauses, env, this.args)
     }
 
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
-        throw new NotImplementedError()
+        return [{
+            path,
+            value: new FunctionNode(
+                this.clauses,
+                {
+                    bindings: null,
+                    constructors: env.constructors,
+                    infixData: env.infixData
+                },
+                this.args,
+                env.bindings)
+        }]
     }
 
     protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
@@ -453,7 +464,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
-        return new FunctionNode(this.clauses, this.closure, newArgs)
+        return new FunctionNode(this.clauses, this.closure, newArgs, this.symBinds)
     }
 
     protected postEnvHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>) {
