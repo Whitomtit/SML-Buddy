@@ -10,6 +10,7 @@ export interface Type {
 export class PrimitiveType implements Type {
     static readonly INT = new PrimitiveType("int");
     static readonly STRING = new PrimitiveType("string");
+    static readonly BOOL = new PrimitiveType("bool");
 
     readonly name: string;
 

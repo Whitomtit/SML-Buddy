@@ -3,7 +3,7 @@ import {Bindings, Constructors, InfixData} from "../parsers/program";
 import {Bool} from "z3-solver";
 import {SymbolicNode} from "./symbolic_nodes";
 
-export type Constructor<T> = new (...args: any[]) => T;
+export type Constructor<T, V = any> = new (args: V) => T;
 
 export const BINARY_OPS = ['+', '-', '*', 'div', 'mod'];
 

@@ -218,7 +218,7 @@ export class ApplicationNode extends SymbolicNode {
             func.reduce((acc: Summary<T>, funcSymBind): Summary<T> =>
                 acc.concat((<ApplicableNode><unknown>funcSymBind.value).symbolicApply(context, arg, funcSymBind.path)), [])
         const applyInfix = (left: Summary<T>, infix: Summary<T>, right: Summary<T>): Summary<T> =>
-            applyFunction(infix, zip(left, right).map(([l, r]) => ({
+            applyFunction(infix, product([left, right]).map(([l, r]) => ({
                 path: l.path.and(r.path),
                 value: new ConstructorNode([l.value, r.value], getTupleConstructorName(2))
             })))
@@ -309,7 +309,7 @@ export class ApplicationNode extends SymbolicNode {
     }
 }
 
-export class ConstructorNode extends SymbolicNode {
+export class ConstructorNode extends SymbolicNode implements SymValuableNode {
     readonly args: SymbolicNode[];
     readonly name: string
 
@@ -348,6 +348,9 @@ export class ConstructorNode extends SymbolicNode {
                 return context.And(acc, arg.eqZ3To(context, other.args[i]))
             }, context.Bool.val(true))
         }
+        if (other instanceof BooleanSymbolNode) {
+            return other.eqZ3To(context, this)
+        }
         if (other instanceof ConstructorNode) {
             return context.Bool.val(false)
         }
@@ -358,6 +361,19 @@ export class ConstructorNode extends SymbolicNode {
         if (this.args.length === 0) return this.name
         return `${this.name}(${this.args.join(", ")})`
     }
+
+    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
+        if (this.name === "true") return context.Bool.val(true)
+        if (this.name === "false") return context.Bool.val(false)
+        throw new UnexpectedError()
+    }
+}
+
+export class BooleanNode extends ConstructorNode {
+    constructor(value: boolean) {
+        super([], value ? "true" : "false")
+    }
+
 }
 
 export class FunctionNode extends SymbolicNode implements ApplicableNode {
@@ -573,23 +589,32 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
     }
 }
 
-export class BuiltInBinopNode<BaseType, NodeType extends SymbolicNode & ValuableNode<BaseType>, SymNodeType extends SymbolicNode & SymValuableNode> extends BuiltInFunctionNode {
+export class BuiltInBinopNode<
+    BaseInType,
+    InNodeType extends SymbolicNode & ValuableNode<BaseInType>,
+    InSymNodeType extends SymbolicNode & SymValuableNode,
+    BaseOutputType = BaseInType,
+    OutNodeType extends SymbolicNode = InNodeType,
+    OutSymNodeType extends SymbolicNode = InSymNodeType
+> extends BuiltInFunctionNode {
     constructor(
-        func: (a: BaseType, b: BaseType) => BaseType,
+        func: (a: BaseInType, b: BaseInType) => BaseOutputType,
         symFunc: <T extends string>(a: Expr<T>, b: Expr<T>) => Expr<T>,
-        symValue: <T extends string>(value: BaseType, context: CustomContext<T>) => Expr<T>,
-        nodeType: Constructor<NodeType>,
-        symNodeType: Constructor<SymNodeType>
+        symValue: <T extends string>(value: BaseInType, context: CustomContext<T>) => Expr<T>,
+        inNodeType: Constructor<InNodeType>,
+        inSymNodeType: Constructor<InSymNodeType>,
+        outNodeConstructor: Constructor<OutNodeType, BaseOutputType>,
+        outSymNodeConstructor: Constructor<OutSymNodeType>
     ) {
         super((node): SymbolicNode => {
             if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
                 throw new BuiltinOperationError("Expected tuple with two elements")
             }
             const [a, b] = node.args
-            if (!(a instanceof nodeType) || !(b instanceof nodeType)) {
-                throw new BuiltinOperationError("expected two arguments of type " + nodeType.toString())
+            if (!(a instanceof inNodeType) || !(b instanceof inNodeType)) {
+                throw new BuiltinOperationError("expected two arguments of type " + inNodeType.toString())
             }
-            return new nodeType(func((<NodeType>a).value, (<NodeType>b).value))
+            return new outNodeConstructor(func((<InNodeType>a).value, (<InNodeType>b).value))
         }, <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> => {
             return argument.reduce((acc: Summary<T>, symBind) => {
                 const node = symBind.value
@@ -598,21 +623,24 @@ export class BuiltInBinopNode<BaseType, NodeType extends SymbolicNode & Valuable
                     throw new BuiltinOperationError("Expected tuple with two elements")
                 }
                 const [a, b] = node.args
-                if (a instanceof nodeType && b instanceof nodeType) {
+                if (a instanceof inNodeType && b instanceof inNodeType) {
                     return acc.concat({
                         path: nodePath,
-                        value: new nodeType(func((<NodeType>a).value, (<NodeType>b).value))
+                        value: new outNodeConstructor(func((<InNodeType>a).value, (<InNodeType>b).value))
                     })
                 }
-                if ((!(a instanceof symNodeType) && !(a instanceof nodeType)) || (!(b instanceof symNodeType) && !(b instanceof nodeType))) {
-                    throw new BuiltinOperationError("expected two arguments of type " + symNodeType.toString() + " or " + nodeType.toString())
+                if (a instanceof BottomNode || b instanceof BottomNode) {
+                    return acc.concat({path: nodePath, value: new BottomNode()})
                 }
-                const aExpr = a instanceof symNodeType ? (<SymNodeType>a).getZ3Value(context) : symValue((<NodeType>a).value, context) as Expr<T>
-                const bExpr = b instanceof symNodeType ? (<SymNodeType>b).getZ3Value(context) : symValue((<NodeType>b).value, context) as Expr<T>
+                if ((!(a instanceof inSymNodeType) && !(a instanceof inNodeType)) || (!(b instanceof inSymNodeType) && !(b instanceof inNodeType))) {
+                    throw new BuiltinOperationError("expected two arguments of type " + inSymNodeType.name.toString() + " or " + inNodeType.name.toString())
+                }
+                const aExpr = a instanceof inSymNodeType ? (<InSymNodeType>a).getZ3Value(context) : symValue((<InNodeType>a).value, context) as Expr<T>
+                const bExpr = b instanceof inSymNodeType ? (<InSymNodeType>b).getZ3Value(context) : symValue((<InNodeType>b).value, context) as Expr<T>
 
                 return acc.concat({
                     path: nodePath,
-                    value: new symNodeType((_) => symFunc(aExpr, bExpr))
+                    value: new outSymNodeConstructor((_) => symFunc(aExpr, bExpr))
                 })
             }, [])
         })
@@ -759,6 +787,35 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
     toString() {
         return "S"
     }
+}
+
+export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
+    readonly valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>;
+
+    constructor(valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>) {
+        super();
+        this.valueSupplier = valueSupplier
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        if (other instanceof BooleanSymbolNode || other instanceof ConstructorNode) {
+            return this.getZ3Value(context).eq(other.getZ3Value(context))
+        }
+        throw new UnexpectedError()
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        throw new UnexpectedError()
+    }
+
+    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
+        return this.valueSupplier(context)
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return [{path, value: this}]
+    }
+
 }
 
 export class BottomNode extends SymbolicNode {

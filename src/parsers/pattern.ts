@@ -1,6 +1,7 @@
 import Parser from "tree-sitter";
 import {Bindings, Environment, getTupleConstructorName} from "./program";
 import {
+    BooleanSymbolNode,
     ConstructorNode,
     IntegerNode,
     IntegerSymbolNode,
@@ -196,8 +197,14 @@ const infixConstructorPattern = (constructorName: string, leftPattern: Pattern, 
         }
     }
 
-const parameterlessConstructorPattern = (constructorName: string): Pattern =>
-    <T extends string>(node: SymbolicNode): PatternResult<T> => {
+const parameterlessConstructorPattern = (constructorName: string): Pattern => {
+    return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
+        if (node instanceof BooleanSymbolNode) {
+            return {
+                bindings: new Map<string, SymbolicNode>(),
+                condition: node.eqZ3To(context, new ConstructorNode([], constructorName))
+            }
+        }
         if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
             throw new PatternMatchError()
         }
@@ -206,6 +213,7 @@ const parameterlessConstructorPattern = (constructorName: string): Pattern =>
             condition: null
         }
     }
+}
 
 
 const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment): number => {
