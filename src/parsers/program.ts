@@ -2,12 +2,20 @@ import Parser from "tree-sitter";
 import {isDeclaration, parseFunctionDeclaration} from "./declaration";
 import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
-import {BuiltInBinopNode, IntegerNode, IntegerSymbolNode, SymbolicNode} from "../models/symbolic_nodes";
+import {
+    BuiltInBinopNode,
+    IntegerNode,
+    IntegerSymbolNode,
+    StringNode,
+    StringSymbolNode,
+    SymbolicNode
+} from "../models/symbolic_nodes";
 import {DATATYPE_DECLARATION, FUNCTION_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 import {NotImplementedError, UnexpectedError} from "../models/errors";
 import {Arith, Expr} from "z3-solver";
 import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
+import {String as Z3String} from "../models/context";
 
 export type InfixType = "Left" | "Right"
 export type Infix = {
@@ -65,7 +73,11 @@ export const parseProgram = (program: string): Environment => {
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).mod((b as Arith<T>)),
             <T extends string>(a, context) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode)],
-        // ["^", new BuiltInBinopNode<string, StringNode, StringSymbolNode>((a, b) => a + b, StringNode)],
+        ["^", new BuiltInBinopNode<string, StringNode, StringSymbolNode>(
+            (a, b) => a.concat(b),
+            <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Z3String<T>).concat((b as Z3String<T>)),
+            <T extends string>(a, context) => context.String.val(a),
+            StringNode, StringSymbolNode)],
     ])
     const initialConstructors: Constructors = new Map([
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],

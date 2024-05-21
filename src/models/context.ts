@@ -24,6 +24,7 @@ export interface StringSort<Name extends string = 'main'> extends Sort<Name> {
 }
 
 export interface String<Name extends string = 'main'> extends Expr<Name, StringSort<Name>, Z3_ast> {
+    concat(other: String<Name>): String<Name>;
 }
 
 export interface StringCreation<Name extends string = 'main'> {
@@ -194,6 +195,10 @@ export const createCustomContext = <Name extends string>(ctx: Context<Name>, Z3)
 
         children(): AnyExpr<Name>[] {
             throw new UnexpectedError()
+        }
+
+        concat(other: String<Name>): String<Name> {
+            return new StringImpl(check(Z3.mk_seq_concat(this.ctx.ptr, [this.ast, other.ast])));
         }
     }
 
