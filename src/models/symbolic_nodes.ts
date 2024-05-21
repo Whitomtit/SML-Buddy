@@ -359,7 +359,8 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode {
 
     toString() {
         if (this.args.length === 0) return this.name
-        return `${this.name}(${this.args.join(", ")})`
+        if (this.args.length === 1) return `${this.name}${this.args[0]}`
+        return `(${this.args.join(", ")})`
     }
 
     getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
@@ -417,14 +418,14 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> {
-        const preHook = this.preSymbolicApplyHook<T>(path)
-        if (preHook !== null) return preHook
+        const preSymbolicApplyHook = this.preSymbolicApplyHook<T>(path)
+        if (preSymbolicApplyHook !== null) return preSymbolicApplyHook
 
         const newArgs = [...this.args, argument] as Summary<T>[]
         if (this.clauses[0].patterns.length === 1 + this.args.length) {
             const closureBinds = (this.symBinds === null) ? bindingsToSym(this.closure.bindings, context.Bool.val(true)) : this.symBinds
-            const summary: Summary<T> = []
             let combinedPath = path
+            let successfulClauses: [Clause, SymEnvironment<T>, Bool<T>][] = []
             for (const clause of this.clauses) {
                 const clauseResult = this.applySymClause(clause, newArgs, combinedPath, context)
                 if (clauseResult === null) continue
@@ -435,15 +436,19 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                     infixData: this.closure.infixData
                 }
                 const callPath = combinedPath.and(matchPath)
+                successfulClauses.push([clause, env, callPath])
 
-                this.postEnvHook(env, callPath)
-
-                summary.push(...clause.body.summarize(context, env, callPath))
                 combinedPath = combinedPath.and(matchPath.not())
             }
-            if (summary.length === 0) {
+            if (successfulClauses.length === 0) {
                 throw new PatternMatchingNotExhaustiveError()
             }
+            const summary: Summary<T> = []
+            successfulClauses.forEach(([clause, env, path]) => {
+                this.preSymbolicExecuteHook(env, path, successfulClauses.length)
+
+                summary.push(...clause.body.summarize(context, env, path))
+            })
             return summary
         }
         return [{
@@ -483,7 +488,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         return new FunctionNode(this.clauses, this.closure, newArgs, this.symBinds)
     }
 
-    protected postEnvHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>) {
+    protected preSymbolicExecuteHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>, successfulClauses: number) {
         return
     }
 
@@ -549,7 +554,8 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
         return super.preSymbolicApplyHook(path)
     }
 
-    protected postEnvHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>) {
+    protected preSymbolicExecuteHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>, successfulClauses: number) {
+        if (successfulClauses === 1) return
         env.bindings.set(this.name, [{
             path,
             value: new RecursiveFunctionNode(this.name, this.clauses, this.closure, [], this.deepLimit - 1)
