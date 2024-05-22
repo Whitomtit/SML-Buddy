@@ -1,8 +1,11 @@
 import {
     AndNode,
+    ApplicableNode,
     ApplicationNode,
     ConstructorNode,
+    ExceptionNode,
     FunctionNode,
+    HandleNode,
     IdentifierNode,
     OrNode,
     SymbolicNode
@@ -16,10 +19,12 @@ import {
     CONSTRAINT_EXPRESSION,
     EXPRESSIONS,
     FN_EXPRESSION,
+    HANDLE_EXPRESSION,
     IF_EXPRESSION,
     LIST_EXPRESSION,
     OP_EXPRESSION,
     ORELSE_EXPRESSION,
+    RAISE_EXPRESSION,
     RECORD_UNIT_EXPRESSION,
     RULE,
     SEQUENCE_EXPRESSION,
@@ -86,12 +91,16 @@ export const parseExpression = (node: Parser.SyntaxNode, env: Environment): Symb
                 ], null),
                 conditionExp
             ])
+        case RAISE_EXPRESSION:
+            return new ExceptionNode(parseExpression(node.lastChild, env))
+        case HANDLE_EXPRESSION:
+            return new HandleNode(parseExpression(node.firstChild, env), parseMatch(node.lastChild, env))
         default:
             throw new NotImplementedError("Expression not implemented: " + node.type + " || " + node.text)
     }
 }
 
-const parseMatch = (node: Parser.SyntaxNode, env: Environment): SymbolicNode => {
+const parseMatch = (node: Parser.SyntaxNode, env: Environment): ApplicableNode & SymbolicNode => {
     const clauses = node.children.filter((child) => child.type === RULE).map((child) => parseRule(child, env))
     // closure will be filled in evaluation
     return new FunctionNode(clauses, null)

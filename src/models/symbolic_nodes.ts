@@ -1,14 +1,10 @@
 import {PolymorphicType, TupleType, Type} from "./types";
 import {Pattern, tryMatch} from "../parsers/pattern";
 import {Bindings, Constructors, Environment, getTupleConstructorName, InfixData} from "../parsers/program";
-import {
-    BuiltinOperationError,
-    PatternMatchingNotExhaustiveError,
-    UnexpectedError,
-    VariableNotDefinedError
-} from "./errors";
+import {BuiltinOperationError, UnexpectedError, VariableNotDefinedError} from "./errors";
 import {Clause} from "../parsers/declaration";
 import {
+    ApplicableSymBind,
     bindingsToSym,
     Constructor,
     mergeSymBindingsInto,
@@ -50,9 +46,15 @@ export abstract class SymbolicNode {
 }
 
 export interface ApplicableNode {
-    apply(argument: SymbolicNode): SymbolicNode;
+    apply(argument: SymbolicNode,
+          onMatchException?: () => SymbolicNode): SymbolicNode;
 
-    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T>
+    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>,
+                                    onMatchException?: (path: Bool<T>) => Summary<T>): Summary<T>
+
+    evaluate(env: Environment): ApplicableNode
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): [ApplicableSymBind<T>]
 }
 
 export interface ValuableNode<T> {
@@ -178,7 +180,7 @@ export class IdentifierNode extends SymbolicNode {
         const value = env.bindings.get(this.name)
         if (!value) throw new VariableNotDefinedError(this.name)
 
-        return value
+        return value.map((symBind) => ({path: path.and(symBind.path), value: symBind.value}))
     }
 
     toString() {
@@ -355,7 +357,8 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
     }
 
     size(): number {
-        return 1 + this.args.reduce((acc, arg) => acc + arg.size(), 0);
+        const burden = (this.args.length <= 1) ? 1 : 0
+        return burden + this.args.reduce((acc, arg) => acc + arg.size(), 0);
     }
 
     holesNumber(): number {
@@ -464,11 +467,12 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         return this.clauses.reduce((acc, clause) => acc + clause.body.holesNumber(), 0);
     }
 
-    apply(argument: SymbolicNode): SymbolicNode {
-        const newArgs = [...this.args, argument]
+    apply(argument: SymbolicNode,
+          onMatchException?: () => SymbolicNode): SymbolicNode {
+        const newArgs = [...this.args, argument] as SymbolicNode[]
         if (this.clauses[0].patterns.length === 1 + this.args.length) {
             for (const clause of this.clauses) {
-                const clauseResult = this.applyClause(clause, newArgs as SymbolicNode[])
+                const clauseResult = this.applyClause(clause, newArgs)
                 if (clauseResult === null) continue
                 const env: Environment = {
                     bindings: new Map([...this.closure.bindings, ...clauseResult]),
@@ -477,12 +481,13 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                 }
                 return clause.body.evaluate(env)
             }
-            throw new PatternMatchingNotExhaustiveError()
+            return onMatchException ? onMatchException() : BottomNode.matchException()
         }
         return this.recreate(newArgs)
     }
 
-    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> {
+    symbolicApply<T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>,
+                                    onMatchException?: (path: Bool<T>) => Summary<T>): Summary<T> {
         const preSymbolicApplyHook = this.preSymbolicApplyHook<T>(path)
         if (preSymbolicApplyHook !== null) return preSymbolicApplyHook
 
@@ -505,10 +510,13 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
 
                 combinedPath = combinedPath.and(matchPath.not())
             }
-            if (successfulClauses.length === 0) {
-                throw new PatternMatchingNotExhaustiveError()
-            }
-            const summary: Summary<T> = []
+            // pattern matching non-exhaustive
+            const summary: Summary<T> = onMatchException ? onMatchException(combinedPath) : [{
+                path: combinedPath,
+                value: BottomNode.matchException()
+            }]
+
+            // successful matching
             successfulClauses.forEach(([clause, env, path]) => {
                 this.preSymbolicExecuteHook(env, path, successfulClauses.length)
 
@@ -530,11 +538,11 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         throw new UnexpectedError()
     }
 
-    evaluate(env: Environment): SymbolicNode {
+    evaluate(env: Environment): SymbolicNode & ApplicableNode {
         return new FunctionNode(this.clauses, env, this.args)
     }
 
-    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> & [ApplicableSymBind<T>] {
         return [{
             path,
             value: new FunctionNode(
@@ -590,11 +598,11 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         return [patternBindings, patternPath]
     }
 
-    private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], path: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
+    private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
         let clauseBindings: SymBindings<T> = new Map()
         let clausePath: Bool<T> = context.Bool.val(true)
         for (const [pattern, argSummary] of zip(clause.patterns, args)) {
-            const [patternBindings, patternPath] = this.applySymPattern(pattern, argSummary, path.and(clausePath), context)
+            const [patternBindings, patternPath] = this.applySymPattern(pattern, argSummary, combinedPath.and(clausePath), context)
             if (patternPath === null) return null
             clauseBindings = new Map([...clauseBindings, ...patternBindings])
             clausePath = clausePath.and(patternPath)
@@ -619,7 +627,7 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
     }
 
     protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
-        if (this.deepLimit === 0) return [{path, value: new BottomNode()}]
+        if (this.deepLimit === 0) return [{path, value: BottomNode.deepLimitException()}]
         return super.preSymbolicApplyHook(path)
     }
 
@@ -647,11 +655,11 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
         return this.func(argument)
     }
 
-    evaluate(env: Environment): SymbolicNode {
+    evaluate(env: Environment): SymbolicNode & ApplicableNode {
         return this
     }
 
-    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> & [ApplicableSymBind<T>] {
         return [{path, value: this}]
     }
 
@@ -690,8 +698,14 @@ export class BuiltInBinopNode<
                 throw new BuiltinOperationError("Expected tuple with two elements")
             }
             const [a, b] = node.args
+            if (a instanceof BottomNode) {
+                return a
+            }
+            if (b instanceof BottomNode) {
+                return b
+            }
             if (!(a instanceof inNodeType) || !(b instanceof inNodeType)) {
-                throw new BuiltinOperationError("expected two arguments of type " + inNodeType.toString())
+                throw new BuiltinOperationError("expected two arguments of type " + inNodeType.name.toString())
             }
             return new outNodeConstructor(func((<InNodeType>a).value, (<InNodeType>b).value))
         }, <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> => {
@@ -708,8 +722,11 @@ export class BuiltInBinopNode<
                         value: new outNodeConstructor(func((<InNodeType>a).value, (<InNodeType>b).value))
                     })
                 }
-                if (a instanceof BottomNode || b instanceof BottomNode) {
-                    return acc.concat({path: nodePath, value: new BottomNode()})
+                if (a instanceof BottomNode) {
+                    return acc.concat({path: nodePath, value: a})
+                }
+                if (b instanceof BottomNode) {
+                    return acc.concat({path: nodePath, value: b})
                 }
                 if ((!(a instanceof inSymNodeType) && !(a instanceof inNodeType)) || (!(b instanceof inSymNodeType) && !(b instanceof inNodeType))) {
                     throw new BuiltinOperationError("expected two arguments of type " + inSymNodeType.name.toString() + " or " + inNodeType.name.toString())
@@ -1147,6 +1164,21 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
 }
 
 export class BottomNode extends SymbolicNode {
+    readonly exceptionNode: SymbolicNode
+
+    constructor(exceptionNode: SymbolicNode) {
+        super();
+        this.exceptionNode = exceptionNode
+    }
+
+    static matchException(): BottomNode {
+        return new BottomNode(new ConstructorNode([], "Match"))
+    }
+
+    static deepLimitException(): BottomNode {
+        return new BottomNode(new ConstructorNode([], "---DeepLimit---"))
+    }
+
     evaluate(env: Environment): SymbolicNode {
         throw new UnexpectedError()
     }
@@ -1162,4 +1194,77 @@ export class BottomNode extends SymbolicNode {
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         return false
     }
+}
+
+export class ExceptionNode extends SymbolicNode {
+    readonly exp: SymbolicNode
+
+    constructor(exp: SymbolicNode) {
+        super();
+        this.exp = exp
+    }
+
+    holesNumber(): number {
+        return this.exp.holesNumber();
+    }
+
+    size(): number {
+        return 1 + this.exp.size()
+    }
+
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        return new BottomNode(this.exp.evaluate(env))
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        return this.exp.summarize(context, env, path).map(({path, value}) => ({
+            path,
+            value: new BottomNode(value)
+        }))
+    }
+
+}
+
+export class HandleNode extends SymbolicNode {
+    readonly exp: SymbolicNode
+    readonly match: ApplicableNode & SymbolicNode
+
+    constructor(exp: SymbolicNode, match: ApplicableNode & SymbolicNode) {
+        super();
+        this.exp = exp
+        this.match = match
+    }
+
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError();
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        const evalResult = this.exp.evaluate(env)
+        if (!(evalResult instanceof BottomNode)) {
+            return evalResult
+        }
+        const evaluatedMatch = this.match.evaluate(env)
+        return evaluatedMatch.apply(evalResult.exceptionNode, () => evalResult)
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        const evalResult = this.exp.summarize(context, env, path)
+        const bottomValues = evalResult.filter(({value}) => value instanceof BottomNode)
+        const exceptionValues = bottomValues.map(
+            ({path, value}) => ({path, value: (value as BottomNode).exceptionNode})
+        )
+        const successfulValues = evalResult.filter(({value}) => !(value instanceof BottomNode))
+        const onHandleFail = (matchPath) => bottomValues.map(({path, value}) => ({
+            path: matchPath.and(path),
+            value
+        }))
+        const evaluatedMatch = this.match.summarize(context, env, path)[0]
+        return [...successfulValues, ...evaluatedMatch.value.symbolicApply(context, exceptionValues, context.Bool.val(true), onHandleFail)]
+    }
+
 }

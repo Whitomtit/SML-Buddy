@@ -1,11 +1,19 @@
 import Parser from "tree-sitter";
-import {isDeclaration, parseFunctionDeclaration, parseInfixDeclaration, parseValueDeclaration} from "./declaration";
+import {
+    isDeclaration,
+    parseException,
+    parseFunctionDeclaration,
+    parseInfixDeclaration,
+    parseValueDeclaration
+} from "./declaration";
 import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
 import {
     BooleanNode,
     BooleanSymbolNode,
+    BottomNode,
     BuiltInBinopNode,
+    BuiltInFunctionNode,
     ConstructorNode,
     EqualityFunction,
     IntegerNode,
@@ -14,12 +22,18 @@ import {
     StringSymbolNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
-import {DATATYPE_DECLARATION, FUNCTION_DECLARATION, INFIX_DECLARATION, VALUE_DECLARATION} from "./const";
+import {
+    DATATYPE_DECLARATION,
+    EXCEPTION_DECLARATION,
+    FUNCTION_DECLARATION,
+    INFIX_DECLARATION,
+    VALUE_DECLARATION
+} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 import {NotImplementedError, UnexpectedError} from "../models/errors";
-import {Arith, Expr} from "z3-solver";
-import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
-import {String as Z3String} from "../models/context";
+import {Arith, Bool, Expr} from "z3-solver";
+import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME, Summary} from "../models/utils";
+import {CustomContext, String as Z3String} from "../models/context";
 
 export type InfixType = "Left" | "Right" | "NonInfix"
 export type Infix = {
@@ -49,8 +63,30 @@ export const parseProgram = (program: string): Environment => {
 
     const parseTree = parser.parse(program)
 
-    traverse(parseTree.rootNode)
+    const notFunction = (node): SymbolicNode => {
+        if (node instanceof BottomNode) {
+            return node
+        }
+        if (node instanceof ConstructorNode) {
+            if (node.name === "true") {
+                return new BooleanNode(false)
+            }
+            if (node.name === "false") {
+                return new BooleanNode(true)
+            }
+        }
 
+        throw new UnexpectedError()
+    }
+    const unaryMinusFunction = (node): SymbolicNode => {
+        if (node instanceof BottomNode) {
+            return node
+        }
+        if (node instanceof IntegerNode) {
+            return new IntegerNode(-node.value)
+        }
+        throw new UnexpectedError()
+    }
     const initialBindings: Bindings = new Map([
         ["+", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
             (a, b) => a + b,
@@ -104,7 +140,33 @@ export const parseProgram = (program: string): Environment => {
             <T extends string>(a, context) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)],
         ["=", new EqualityFunction(false)],
-        ["<>", new EqualityFunction(true)]
+        ["<>", new EqualityFunction(true)],
+        ["not", new BuiltInFunctionNode(
+            notFunction,
+            <T extends string>(context: CustomContext<T>, argument: Summary<T>, _: Bool<T>): Summary<T> => {
+                return argument.map(({path, value}) => {
+                    let node: SymbolicNode;
+                    if (value instanceof BooleanSymbolNode) {
+                        node = new BooleanSymbolNode(() => value.getZ3Value(context).not() as Bool<any>)
+                    } else {
+                        node = notFunction(value)
+                    }
+                    return {path, value: node}
+                })
+            })],
+        ["~", new BuiltInFunctionNode(
+            unaryMinusFunction,
+            <T extends string>(context: CustomContext<T>, argument: Summary<T>, _: Bool<T>): Summary<T> => {
+                return argument.map(({path, value}) => {
+                    let node: SymbolicNode;
+                    if (value instanceof IntegerSymbolNode) {
+                        node = new IntegerSymbolNode(() => (value.getZ3Value(context) as Arith<any>).neg())
+                    } else {
+                        node = unaryMinusFunction(value)
+                    }
+                    return {path, value: node}
+                })
+            })]
     ])
     const initialConstructors: Constructors = new Map([
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],
@@ -159,18 +221,14 @@ export const parseProgram = (program: string): Environment => {
             case INFIX_DECLARATION:
                 environment.infixData = new Map([...environment.infixData, ...parseInfixDeclaration(declaration)])
                 break
+            case EXCEPTION_DECLARATION:
+                environment.constructors = new Map([...environment.constructors, ...parseException(declaration, environment)])
+                break
             default:
                 throw new NotImplementedError("Declaration not implemented: " + declaration.type + " || " + declaration.text)
         }
     }
     return environment
-}
-
-function traverse(node: Parser.SyntaxNode, depth = 0) {
-    console.log('\t'.repeat(depth) + node.type + ' : ' + node.text)
-    for (const child of node.children) {
-        traverse(child, depth + 1)
-    }
 }
 
 export const getTupleConstructorName = (arity: number): string => {

@@ -1,7 +1,7 @@
 import {PolymorphicType, Type} from "./types";
 import {Bindings, Constructors, InfixData} from "../parsers/program";
 import {Bool} from "z3-solver";
-import {SymbolicNode} from "./symbolic_nodes";
+import {ApplicableNode, SymbolicNode} from "./symbolic_nodes";
 
 export type Constructor<T, V = any> = new (args: V) => T;
 
@@ -20,6 +20,11 @@ export const substitute = (type: Type, substitution: Map<PolymorphicType, Type>)
 export type SymBind<T extends string> = {
     path: Bool<T>
     value: SymbolicNode
+}
+
+export type ApplicableSymBind<T extends string> = {
+    path: Bool<T>
+    value: ApplicableNode
 }
 
 export type SymBindings<T extends string> = Map<string, SymBind<T>[]>

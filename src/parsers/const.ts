@@ -7,7 +7,6 @@ export const DATATYPE_REPLICATION = "datatype_repl_ldec";
 export const DATATYPE_DECLARATION = "datatype_ldec";
 // TODO implement
 export const ABSTRACT_TYPE_DECLARATION = "abstype_ldec";
-// TODO implement
 export const EXCEPTION_DECLARATION = "exception_ldec";
 // TODO implement
 export const OPEN_DECLARATION = "open_ldec";
@@ -36,8 +35,12 @@ export const DATATYPE_BIND = "db"
 export const CONSTRUCTOR = "constr";
 export const FUNCTION_BIND = "fb";
 export const VALUE_BIND = "vb";
+export const EXCEPTION_BIND = "eb";
 export const CLAUSE = "clause";
 export const RULE = "rule";
+
+export const PARAMETRIC_EXCEPTION = "exn_gen"
+export const REDEFINED_EXCEPTION = "exn_def"
 
 export const LEFT_INFIX = 'infix'
 export const RIGHT_INFIX = 'infixr'
@@ -89,7 +92,6 @@ export const FLOAT_CONSTANT = "float_constant";
 export const CHAR_CONSTANT = "char_constant";
 export const STRING_CONSTANT = "string_constant";
 
-// TODO implement
 export const HANDLE_EXPRESSION = "handle_exp";
 export const ORELSE_EXPRESSION = "orelse_exp";
 export const ANDALSO_EXPRESSION = "andalso_exp";
@@ -100,7 +102,6 @@ export const CASE_EXPRESSION = "case_exp";
 // TODO implement
 export const WHILE_EXPRESSION = "while_exp";
 export const IF_EXPRESSION = "if_exp";
-// TODO implement
 export const RAISE_EXPRESSION = "raise_exp";
 
 export const VAR_EXPRESSION = "var_exp";

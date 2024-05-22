@@ -11,6 +11,7 @@ export class PrimitiveType implements Type {
     static readonly INT = new PrimitiveType("int");
     static readonly STRING = new PrimitiveType("string");
     static readonly BOOL = new PrimitiveType("bool");
+    static readonly EXCEPTION = new PrimitiveType("exn");
 
     readonly name: string;
 

@@ -2,19 +2,25 @@ import Parser from "tree-sitter";
 import {
     CLAUSE,
     DECLARATIONS,
+    EXCEPTION_BIND,
     FUNCTION_BIND,
     INT_CONSTANT,
     LEFT_INFIX,
     NON_INFIX,
+    OP,
+    PARAMETRIC_EXCEPTION,
+    REDEFINED_EXCEPTION,
     RIGHT_INFIX,
     VALUE_BIND
 } from "./const";
-import {Bindings, Environment, Infix, InfixData, InfixType} from "./program";
+import {Bindings, Constructors, Environment, Infix, InfixData, InfixType} from "./program";
 import {IntegerNode, RecursiveFunctionNode, SymbolicNode} from "../models/symbolic_nodes";
 import {isPattern, parsePattern, Pattern} from "./pattern";
 import {parseExpression} from "./expression";
 import {UnexpectedError} from "../models/errors";
 import {parseConstant} from "./constant";
+import {parseType} from "./type";
+import {FunctionType, PrimitiveType, TupleType, Type} from "../models/types";
 
 export const isDeclaration = (node: Parser.SyntaxNode): boolean => {
     return DECLARATIONS.includes(node.type)
@@ -86,6 +92,31 @@ const parseInfixType = (node: Parser.SyntaxNode): InfixType => {
         default:
             throw new UnexpectedError()
     }
+}
+
+export const parseException = (node: Parser.SyntaxNode, env: Environment): Constructors => {
+    const result: Constructors = new Map<string, FunctionType>()
+    node.children
+        .filter((child) => child.type === EXCEPTION_BIND)
+        .map((child) => parseExceptionBind(child, env))
+        .forEach(([constructorName, constructorFunc]) => result.set(constructorName, constructorFunc))
+    return result
+}
+
+const parseExceptionBind = (node: Parser.SyntaxNode, env: Environment): [string, FunctionType] => {
+    let child = node.firstChild
+    if (child.type === OP) {
+        child = child.nextSibling
+    }
+    const constructorName = child.text
+
+    let argType: Type = new TupleType([])
+    if (node.lastChild.type === PARAMETRIC_EXCEPTION) {
+        argType = parseType(node.lastChild.lastChild, new Map())
+    } else if (node.lastChild.type === REDEFINED_EXCEPTION) {
+        argType = env.constructors.get(node.lastChild.lastChild.text)
+    }
+    return [constructorName, new FunctionType(argType, PrimitiveType.EXCEPTION)]
 }
 
 export type Clause = {

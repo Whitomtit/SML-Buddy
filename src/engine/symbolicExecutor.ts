@@ -11,30 +11,37 @@ export class SymbolicExecutor<T extends string> {
     private readonly referenceProgram: RecursiveFunctionNode
     private readonly checkedProgram: RecursiveFunctionNode
 
-    private readonly env: SymEnvironment<T>
+    private readonly referenceEnv: SymEnvironment<T>
+    private readonly checkedEnv: SymEnvironment<T>
 
     private readonly startPath: Bool<T>
 
-    constructor(context: CustomContext<T>, referenceProgram: RecursiveFunctionNode, checkedProgram: RecursiveFunctionNode, env: Environment) {
+    constructor(context: CustomContext<T>, referenceProgram: RecursiveFunctionNode, checkedProgram: RecursiveFunctionNode, referenceEnv: Environment, checkedEnv: Environment) {
         this.context = context
         this.solver = new context.Solver()
 
         this.referenceProgram = referenceProgram
         this.checkedProgram = checkedProgram
 
-        this.env = {
-            bindings: bindingsToSym(env.bindings, this.context.Bool.val(true)),
-            constructors: env.constructors,
-            infixData: env.infixData
+        this.referenceEnv = {
+            bindings: bindingsToSym(referenceEnv.bindings, this.context.Bool.val(true)),
+            constructors: referenceEnv.constructors,
+            infixData: referenceEnv.infixData
+        }
+        this.checkedEnv = {
+            bindings: bindingsToSym(checkedEnv.bindings, this.context.Bool.val(true)),
+            constructors: checkedEnv.constructors,
+            infixData: checkedEnv.infixData
         }
 
         this.startPath = this.context.Bool.val(true)
     }
 
     async check(input: SymbolicNode) {
-        const processedInput = input.summarize(this.context, this.env, this.startPath)
-        const referenceSummary = this.referenceProgram.symbolicApply(this.context, processedInput, this.startPath)
-        const checkedSummary = this.checkedProgram.symbolicApply(this.context, processedInput, this.startPath)
+        const referenceInput = input.summarize(this.context, this.referenceEnv, this.startPath)
+        const checkedInput = input.summarize(this.context, this.checkedEnv, this.startPath)
+        const referenceSummary = this.referenceProgram.symbolicApply(this.context, referenceInput, this.startPath)
+        const checkedSummary = this.checkedProgram.symbolicApply(this.context, checkedInput, this.startPath)
 
         const formula = referenceSummary.reduce((formula, symBind) => {
             const referenceValue = symBind.value
@@ -51,8 +58,8 @@ export class SymbolicExecutor<T extends string> {
             return formula.and(symBind.path.implies(rhe))
         }, this.context.Bool.val(true))
         this.solver.reset()
-        this.solver.add(formula.not())
-        if (await this.solver.check() === "sat") {
+
+        if (await this.solver.check(formula.not()) === "sat") {
             return this.solver.model()
         }
         return null
