@@ -1,5 +1,5 @@
 import Parser from "tree-sitter";
-import {isDeclaration, parseFunctionDeclaration} from "./declaration";
+import {isDeclaration, parseFunctionDeclaration, parseValueDeclaration} from "./declaration";
 import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
 import {
@@ -14,7 +14,7 @@ import {
     StringSymbolNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
-import {DATATYPE_DECLARATION, FUNCTION_DECLARATION} from "./const";
+import {DATATYPE_DECLARATION, FUNCTION_DECLARATION, VALUE_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 import {NotImplementedError, UnexpectedError} from "../models/errors";
 import {Arith, Expr} from "z3-solver";
@@ -152,6 +152,9 @@ export const parseProgram = (program: string): Environment => {
                 break
             case FUNCTION_DECLARATION:
                 environment.bindings = new Map([...environment.bindings, ...parseFunctionDeclaration(declaration, environment)])
+                break
+            case VALUE_DECLARATION:
+                environment.bindings = new Map([...environment.bindings, ...parseValueDeclaration(declaration, environment)])
                 break
             default:
                 throw new NotImplementedError("Declaration not implemented: " + declaration.type + " || " + declaration.text)

@@ -1,17 +1,28 @@
 export const VALUE_DECLARATION = "val_ldec";
 export const FUNCTION_DECLARATION = "fun_ldec";
+// TODO implement
 export const TYPE_DECLARATION = "type_ldec";
+// TODO implement
 export const DATATYPE_REPLICATION = "datatype_repl_ldec";
 export const DATATYPE_DECLARATION = "datatype_ldec";
+// TODO implement
 export const ABSTRACT_TYPE_DECLARATION = "abstype_ldec";
+// TODO implement
 export const EXCEPTION_DECLARATION = "exception_ldec";
+// TODO implement
 export const OPEN_DECLARATION = "open_ldec";
+// TODO implement
 export const INFIX_DECLARATION = "fixity_ldec";
 
+// TODO implement
 export const STRUCTURE_DECLARATION = "structure_dec";
+// TODO implement
 export const SIGNATURE_DECLARATION = "signature_dec";
+// TODO implement
 export const FUNCTOR_SIGNATURE_DECLARATION = "funsig_dec";
+// TODO implement
 export const FUNCTOR_DECLARATION = "functor_dec";
+// TODO implement
 export const LOCAL_DECLARATION = "local_dec";
 
 export const DECLARATIONS = [
@@ -25,6 +36,7 @@ export const DECLARATIONS = [
 export const DATATYPE_BIND = "db"
 export const CONSTRUCTOR = "constr";
 export const FUNCTION_BIND = "fb";
+export const VALUE_BIND = "vb";
 export const CLAUSE = "clause";
 export const RULE = "rule";
 

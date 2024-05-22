@@ -1,5 +1,5 @@
 import Parser from "tree-sitter";
-import {CLAUSE, DECLARATIONS, FUNCTION_BIND} from "./const";
+import {CLAUSE, DECLARATIONS, FUNCTION_BIND, VALUE_BIND} from "./const";
 import {Bindings, Environment} from "./program";
 import {RecursiveFunctionNode, SymbolicNode} from "../models/symbolic_nodes";
 import {isPattern, parsePattern, Pattern} from "./pattern";
@@ -31,6 +31,19 @@ const parseFunctionBind = (node: Parser.SyntaxNode, env: Environment): Bindings 
     functionNode.closure.bindings = new Map([...functionNode.closure.bindings, ...nameBind.bindings])
     functionNode.name = nameBind.bindings.keys().next().value
     return nameBind.bindings
+}
+
+export const parseValueDeclaration = (node: Parser.SyntaxNode, env: Environment): Bindings => {
+    return node.children
+        .filter((child) => child.type === VALUE_BIND)
+        .map((child) => parseValueBind(child, env))
+        .reduce((acc, val) => new Map([...acc, ...val]), new Map<string, SymbolicNode>())
+}
+
+const parseValueBind = (node: Parser.SyntaxNode, env: Environment): Bindings => {
+    const pattern = parsePattern(node.firstChild, env)
+    const exp = parseExpression(node.lastChild, env)
+    return pattern(exp.evaluate(env)).bindings
 }
 
 export type Clause = {

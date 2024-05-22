@@ -32,13 +32,16 @@ fun test_b_ x n = n;
 fun test_a n = f (cool_func (test_a_ (n + 1) n)) (test n)
 fun test_b n = f (cool_func (test_b_ (n * 4) n)) (test n);
 
+val x = ["hello"];
+val [x] = x;
+val y = ["DD", "d", x];
 
 fun sub_a l = case l of [] => 0 | (_::xs) => op+ (1, (sub_a xs))
 
 fun test_a l = (sub_a l) > 1;
 
 fun sub_b ([]:string list) = if true andalso true then 0 else 1
-  | sub_b (x::xs) = if xs = ["DD", "d", "hello"] andalso x <> "bye" then 1 else 1 + (sub_b xs);
+  | sub_b (x::xs) = if xs = y andalso x <> "bye" then 1 else 1 + (sub_b xs);
 
 fun test_b l = ((sub_b l) > 1) andalso false orelse ((sub_b l) > 1);
 
