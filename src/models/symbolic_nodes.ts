@@ -309,7 +309,7 @@ export class ApplicationNode extends SymbolicNode {
     }
 }
 
-export class ConstructorNode extends SymbolicNode implements SymValuableNode {
+export class ConstructorNode extends SymbolicNode implements SymValuableNode, ValuableNode<boolean> {
     readonly args: SymbolicNode[];
     readonly name: string
 
@@ -363,7 +363,13 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode {
         return `(${this.args.join(", ")})`
     }
 
-    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
+    get value() {
+        if (this.name === "true") return true
+        if (this.name === "false") return false
+        throw new UnexpectedError()
+    }
+
+    getZ3Value<T extends string>(context: CustomContext<T>): Bool<T> {
         if (this.name === "true") return context.Bool.val(true)
         if (this.name === "false") return context.Bool.val(false)
         throw new UnexpectedError()
@@ -653,6 +659,182 @@ export class BuiltInBinopNode<
     }
 }
 
+export class AndNode extends SymbolicNode {
+    readonly left: SymbolicNode;
+    readonly right: SymbolicNode;
+
+    constructor(left: SymbolicNode, right: SymbolicNode) {
+        super();
+        this.left = left
+        this.right = right
+    }
+
+    size(): number {
+        return 1 + this.left.size() + this.right.size();
+    }
+
+    holesNumber(): number {
+        return this.left.holesNumber() + this.right.holesNumber();
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        const leftResult = this.left.evaluate(env)
+        if (!(leftResult instanceof ConstructorNode)) {
+            throw new UnexpectedError()
+        }
+        if (leftResult.value) {
+            return this.right.evaluate(env)
+        }
+        return leftResult
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        const leftSummary = this.left.summarize(context, env, path)
+        const rightSummary = this.right.summarize(context, env, path)
+        const summary: Summary<T> = []
+
+        leftSummary.forEach((leftSymBind) => {
+            const leftValue = leftSymBind.value
+            if (leftValue instanceof BottomNode) {
+                summary.push(leftSymBind)
+                return
+            }
+            if (leftValue instanceof ConstructorNode) {
+                if (leftValue.value) {
+                    summary.push(...rightSummary.map((rightSymBind) => ({
+                        path: leftSymBind.path.and(rightSymBind.path),
+                        value: rightSymBind.value
+                    })))
+                } else {
+                    summary.push(leftSymBind)
+                }
+                return
+            }
+            // leftSymBind.value is a BooleanSymbolNode
+            if (!(leftValue instanceof BooleanSymbolNode)) {
+                throw new UnexpectedError()
+            }
+
+            rightSummary.forEach((rightSymBind) => {
+                const rightValue = rightSymBind.value
+                if (rightValue instanceof BottomNode) {
+                    summary.push({
+                        path: leftSymBind.path.and(leftValue.getZ3Value(context)).and(rightSymBind.path),
+                        value: rightValue
+                    })
+                    summary.push({
+                        path: leftSymBind.path.and(leftValue.getZ3Value(context).not()),
+                        value: leftValue
+                    })
+                    return
+                }
+                if (rightValue instanceof ConstructorNode || rightValue instanceof BooleanSymbolNode) {
+                    summary.push({
+                        path: leftSymBind.path.and(rightSymBind.path),
+                        value: new BooleanSymbolNode((context) => leftValue.getZ3Value(context).and(rightValue.getZ3Value(context)))
+                    })
+                    return
+                }
+                throw new UnexpectedError()
+            })
+        })
+        return summary
+    }
+
+}
+
+export class OrNode extends SymbolicNode {
+    readonly left: SymbolicNode;
+    readonly right: SymbolicNode;
+
+    constructor(left: SymbolicNode, right: SymbolicNode) {
+        super();
+        this.left = left
+        this.right = right
+    }
+
+    size(): number {
+        return 1 + this.left.size() + this.right.size();
+    }
+
+    holesNumber(): number {
+        return this.left.holesNumber() + this.right.holesNumber();
+    }
+
+    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+        throw new UnexpectedError()
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        const leftResult = this.left.evaluate(env)
+        if (!(leftResult instanceof ConstructorNode)) {
+            throw new UnexpectedError()
+        }
+        if (!leftResult.value) {
+            return this.right.evaluate(env)
+        }
+        return leftResult
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        const leftSummary = this.left.summarize(context, env, path)
+        const rightSummary = this.right.summarize(context, env, path)
+        const summary: Summary<T> = []
+
+        leftSummary.forEach((leftSymBind) => {
+            const leftValue = leftSymBind.value
+            if (leftValue instanceof BottomNode) {
+                summary.push(leftSymBind)
+                return
+            }
+            if (leftValue instanceof ConstructorNode) {
+                if (!leftValue.value) {
+                    summary.push(...rightSummary.map((rightSymBind) => ({
+                        path: leftSymBind.path.and(rightSymBind.path),
+                        value: rightSymBind.value
+                    })))
+                } else {
+                    summary.push(leftSymBind)
+                }
+                return
+            }
+            // leftSymBind.value is a BooleanSymbolNode
+            if (!(leftValue instanceof BooleanSymbolNode)) {
+                throw new UnexpectedError()
+            }
+
+            rightSummary.forEach((rightSymBind) => {
+                const rightValue = rightSymBind.value
+                if (rightValue instanceof BottomNode) {
+                    summary.push({
+                        path: leftSymBind.path.and(leftValue.getZ3Value(context).not()).and(rightSymBind.path),
+                        value: rightValue
+                    })
+                    summary.push({
+                        path: leftSymBind.path.and(leftValue.getZ3Value(context)),
+                        value: leftValue
+                    })
+                    return
+                }
+                if (rightValue instanceof ConstructorNode || rightValue instanceof BooleanSymbolNode) {
+                    summary.push({
+                        path: leftSymBind.path.and(rightSymBind.path),
+                        value: new BooleanSymbolNode((context) => leftValue.getZ3Value(context).or(rightValue.getZ3Value(context)))
+                    })
+                    return
+                }
+                throw new UnexpectedError()
+            })
+        })
+        return summary
+    }
+
+}
+
 export class TestFunctionNode extends SymbolicNode {
     readonly argName: string;
     readonly body: SymbolicNode;
@@ -796,9 +978,9 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
 }
 
 export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
-    readonly valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>;
+    readonly valueSupplier: <T extends string>(context: CustomContext<T>) => Bool<T>;
 
-    constructor(valueSupplier: <T extends string>(context: CustomContext<T>) => Expr<T>) {
+    constructor(valueSupplier: <T extends string>(context: CustomContext<T>) => Bool<T>) {
         super();
         this.valueSupplier = valueSupplier
     }
@@ -814,7 +996,7 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
         throw new UnexpectedError()
     }
 
-    getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
+    getZ3Value<T extends string>(context: CustomContext<T>): Bool<T> {
         return this.valueSupplier(context)
     }
 

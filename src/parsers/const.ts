@@ -76,9 +76,7 @@ export const STRING_CONSTANT = "string_constant";
 
 // TODO implement
 export const HANDLE_EXPRESSION = "handle_exp";
-// TODO implement
 export const ORELSE_EXPRESSION = "orelse_exp";
-// TODO implement
 export const ANDALSO_EXPRESSION = "andalso_exp";
 export const CONSTRAINT_EXPRESSION = "constraint_exp";
 export const APP_EXPRESSION = "app_exp";
@@ -86,7 +84,6 @@ export const FN_EXPRESSION = "fn_exp";
 export const CASE_EXPRESSION = "case_exp";
 // TODO implement
 export const WHILE_EXPRESSION = "while_exp";
-// TODO implement
 export const IF_EXPRESSION = "if_exp";
 // TODO implement
 export const RAISE_EXPRESSION = "raise_exp";

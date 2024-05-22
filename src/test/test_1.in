@@ -35,11 +35,11 @@ fun test_b n = f (cool_func (test_b_ (n * 4) n)) (test n);
 
 fun sub_a l = case l of [] => 0 | (_::xs) => op+ (1, (sub_a xs))
 
-fun test_a l = (sub_a l) < 1;
+fun test_a l = (sub_a l) > 1;
 
-fun sub_b ([]:string list) = 0
+fun sub_b ([]:string list) = if true andalso true then 0 else 1
   | sub_b (x::xs) = (fn (["DD", _, "hello"]:string list) => 1 | _ => 1 + (sub_b xs)) (("D" ^ x) :: xs);
 
-fun test_b l = (sub_b l) < 1;
+fun test_b l = ((sub_b l) > 1) andalso false orelse ((sub_b l) > 1);
 
 fun main n = (f (fn () => 5) ([1,2,3,4,5]:int list)) >= 100;

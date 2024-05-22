@@ -1,14 +1,25 @@
-import {ApplicationNode, ConstructorNode, FunctionNode, IdentifierNode, SymbolicNode} from "../models/symbolic_nodes";
+import {
+    AndNode,
+    ApplicationNode,
+    ConstructorNode,
+    FunctionNode,
+    IdentifierNode,
+    OrNode,
+    SymbolicNode
+} from "../models/symbolic_nodes";
 import Parser from "tree-sitter";
 import {
+    ANDALSO_EXPRESSION,
     APP_EXPRESSION,
     CASE_EXPRESSION,
     CONSTANT_EXPRESSION,
     CONSTRAINT_EXPRESSION,
     EXPRESSIONS,
     FN_EXPRESSION,
+    IF_EXPRESSION,
     LIST_EXPRESSION,
     OP_EXPRESSION,
+    ORELSE_EXPRESSION,
     RECORD_UNIT_EXPRESSION,
     RULE,
     SEQUENCE_EXPRESSION,
@@ -21,7 +32,7 @@ import {Environment, getTupleConstructorName} from "./program";
 import {NotImplementedError} from "../models/errors";
 import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
 import {Clause} from "./declaration";
-import {parsePattern} from "./pattern";
+import {parameterlessConstructorPattern, parsePattern} from "./pattern";
 
 export const parseExpression = (node: Parser.SyntaxNode, env: Environment): SymbolicNode => {
     switch (node.type) {
@@ -56,6 +67,25 @@ export const parseExpression = (node: Parser.SyntaxNode, env: Environment): Symb
             return parseMatch(node.lastChild, env)
         case CASE_EXPRESSION:
             return new ApplicationNode([parseMatch(node.lastChild, env), parseExpression(node.children[1], env)])
+        case ANDALSO_EXPRESSION:
+            return new AndNode(parseExpression(node.firstChild, env), parseExpression(node.lastChild, env))
+        case ORELSE_EXPRESSION:
+            return new OrNode(parseExpression(node.firstChild, env), parseExpression(node.lastChild, env))
+        case IF_EXPRESSION:
+            const [conditionExp, trueCaseExp, falseCaseExp] = node.children.filter(isExpression).map((child) => parseExpression(child, env))
+            return new ApplicationNode([
+                new FunctionNode([
+                    {
+                        patterns: [parameterlessConstructorPattern("true")],
+                        body: trueCaseExp
+                    },
+                    {
+                        patterns: [parameterlessConstructorPattern("false")],
+                        body: falseCaseExp
+                    }
+                ], null),
+                conditionExp
+            ])
         default:
             throw new NotImplementedError("Expression not implemented: " + node.type + " || " + node.text)
     }

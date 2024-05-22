@@ -197,7 +197,7 @@ const infixConstructorPattern = (constructorName: string, leftPattern: Pattern, 
         }
     }
 
-const parameterlessConstructorPattern = (constructorName: string): Pattern => {
+export const parameterlessConstructorPattern = (constructorName: string): Pattern => {
     return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
         if (node instanceof BooleanSymbolNode) {
             return {
