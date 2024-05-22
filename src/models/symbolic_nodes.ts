@@ -14,6 +14,7 @@ import {
     mergeSymBindingsInto,
     product,
     Summary,
+    SymBind,
     SymBindings,
     SymEnvironment,
     zip
@@ -38,7 +39,14 @@ export abstract class SymbolicNode {
 
     abstract summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T>
 
-    abstract eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode);
+    abstract eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T>;
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        if (other instanceof BottomNode) {
+            return false
+        }
+        throw new UnexpectedError()
+    }
 }
 
 export interface ApplicableNode {
@@ -51,10 +59,10 @@ export interface ValuableNode<T> {
     readonly value
 }
 
-
 export interface SymValuableNode {
     getZ3Value<T extends string>(context: CustomContext<T>): Expr<T>
 }
+
 
 export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
     readonly value: number;
@@ -72,14 +80,23 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
         return [{path, value: this}]
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof IntegerNode) {
             return context.Bool.val(this.value === other.value)
         }
         if (other instanceof IntegerSymbolNode) {
             return context.Int.val(this.value).eq(other.getZ3Value(context))
         }
-        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>) {
+        if (other instanceof IntegerNode) {
+            return this.value === other.value
+        }
+        if (other instanceof IntegerSymbolNode) {
+            return this.eqZ3To(other, context)
+        }
+        return super.eqTo(other, context)
     }
 
     toString() {
@@ -103,7 +120,7 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
         return [{path, value: this}]
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof StringNode) {
             return context.Bool.val(this.value === other.value)
         }
@@ -115,6 +132,16 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
 
     toString() {
         return this.value;
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        if (other instanceof StringNode) {
+            return this.value === other.value
+        }
+        if (other instanceof StringSymbolNode) {
+            return this.eqZ3To(other, context)
+        }
+        return super.eqTo(other, context)
     }
 }
 
@@ -178,7 +205,11 @@ export class IdentifierNode extends SymbolicNode {
         )
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 }
@@ -230,7 +261,11 @@ export class ApplicationNode extends SymbolicNode {
         )
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 
@@ -342,19 +377,43 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
         })
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof ConstructorNode && this.name === other.name) {
             return this.args.reduce((acc, arg, i) => {
-                return context.And(acc, arg.eqZ3To(context, other.args[i]))
+                return context.And(acc, arg.eqZ3To(other.args[i], context))
             }, context.Bool.val(true))
         }
         if (other instanceof BooleanSymbolNode) {
-            return other.eqZ3To(context, this)
+            return other.eqZ3To(this, context)
         }
         if (other instanceof ConstructorNode) {
             return context.Bool.val(false)
         }
         throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        if (other instanceof ConstructorNode && this.name === other.name) {
+            let result: boolean | Bool<T> = true;
+            for (let [arg, otherArg] of zip(this.args, other.args)) {
+                const subEquality = arg.eqTo<T>(otherArg, context)
+                if (subEquality === false) {
+                    return false
+                }
+                if (subEquality === true) {
+                    continue
+                }
+                result = subEquality.and(result)
+            }
+            return result
+        }
+        if (other instanceof BooleanSymbolNode) {
+            return this.eqZ3To(this, context)
+        }
+        if (other instanceof ConstructorNode) {
+            return context.Bool.val(false)
+        }
+        return super.eqTo(other, context);
     }
 
     toString() {
@@ -463,7 +522,11 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         }]
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 
@@ -596,7 +659,11 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
         return this.symFunc(context, argument, path)
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 }
@@ -659,6 +726,42 @@ export class BuiltInBinopNode<
     }
 }
 
+export class EqualityFunction extends BuiltInFunctionNode {
+    constructor(negate: boolean) {
+        super(
+            (node) => {
+                if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
+                    throw new BuiltinOperationError("Expected tuple with two elements")
+                }
+                const [a, b] = node.args
+                const subEquality = a.eqTo(b) as boolean
+                return new BooleanNode(negate ? !subEquality : subEquality)
+            },
+            <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> => {
+                return argument.map((symBind): SymBind<T> => {
+                    const node = symBind.value
+                    const nodePath = path.and(symBind.path)
+                    if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
+                        throw new BuiltinOperationError("Expected tuple with two elements")
+                    }
+                    const [a, b] = node.args
+                    const subEquality = a.eqTo(b, context)
+                    if (subEquality === false || subEquality === true) {
+                        return ({
+                            path: nodePath,
+                            value: new BooleanNode(negate ? !subEquality : subEquality)
+                        })
+                    }
+                    return ({
+                        path: nodePath,
+                        value: new BooleanSymbolNode(<T extends string>(_: CustomContext<T>): any => negate ? subEquality.not() : subEquality)
+                    })
+                })
+            }
+        );
+    }
+}
+
 export class AndNode extends SymbolicNode {
     readonly left: SymbolicNode;
     readonly right: SymbolicNode;
@@ -677,7 +780,11 @@ export class AndNode extends SymbolicNode {
         return this.left.holesNumber() + this.right.holesNumber();
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 
@@ -765,7 +872,11 @@ export class OrNode extends SymbolicNode {
         return this.left.holesNumber() + this.right.holesNumber();
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 
@@ -861,7 +972,11 @@ export class TestFunctionNode extends SymbolicNode {
         throw new UnexpectedError()
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 
@@ -894,7 +1009,11 @@ export class HoleNode extends SymbolicNode {
         throw new UnexpectedError()
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
     }
 
@@ -921,7 +1040,7 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
         return [{path, value: this}]
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof IntegerSymbolNode) {
             return this.getZ3Value(context).eq(other.getZ3Value(context))
         }
@@ -929,6 +1048,13 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
             return this.getZ3Value(context).eq(context.Int.val(other.value))
         }
         throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        if (other instanceof BottomNode) {
+            return false
+        }
+        return this.eqZ3To(other, context)
     }
 
     getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
@@ -958,7 +1084,7 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
         return [{path, value: this}]
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof StringSymbolNode) {
             return this.getZ3Value(context).eq(other.getZ3Value(context))
         }
@@ -966,6 +1092,13 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
             return this.getZ3Value(context).eq(context.String.val(other.value))
         }
         throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        if (other instanceof BottomNode) {
+            return false
+        }
+        return this.eqZ3To(other, context)
     }
 
     getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
@@ -985,11 +1118,18 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
         this.valueSupplier = valueSupplier
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof BooleanSymbolNode || other instanceof ConstructorNode) {
             return this.getZ3Value(context).eq(other.getZ3Value(context))
         }
         throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        if (other instanceof BottomNode) {
+            return false
+        }
+        return this.eqZ3To(other, context)
     }
 
     evaluate(env: Environment): SymbolicNode {
@@ -1015,7 +1155,11 @@ export class BottomNode extends SymbolicNode {
         throw new UnexpectedError()
     }
 
-    eqZ3To<T extends string>(context: CustomContext<T>, other: SymbolicNode) {
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         throw new UnexpectedError()
+    }
+
+    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        return false
     }
 }

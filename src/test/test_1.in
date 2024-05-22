@@ -38,7 +38,7 @@ fun sub_a l = case l of [] => 0 | (_::xs) => op+ (1, (sub_a xs))
 fun test_a l = (sub_a l) > 1;
 
 fun sub_b ([]:string list) = if true andalso true then 0 else 1
-  | sub_b (x::xs) = (fn (["DD", _, "hello"]:string list) => 1 | _ => 1 + (sub_b xs)) (("D" ^ x) :: xs);
+  | sub_b (x::xs) = if xs = ["DD", "d", "hello"] andalso x <> "bye" then 1 else 1 + (sub_b xs);
 
 fun test_b l = ((sub_b l) > 1) andalso false orelse ((sub_b l) > 1);
 

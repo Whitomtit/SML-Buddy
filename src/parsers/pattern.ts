@@ -202,7 +202,7 @@ export const parameterlessConstructorPattern = (constructorName: string): Patter
         if (node instanceof BooleanSymbolNode) {
             return {
                 bindings: new Map<string, SymbolicNode>(),
-                condition: node.eqZ3To(context, new ConstructorNode([], constructorName))
+                condition: node.eqZ3To(new ConstructorNode([], constructorName), context)
             }
         }
         if (!(node instanceof ConstructorNode) || node.name !== constructorName) {

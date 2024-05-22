@@ -7,6 +7,7 @@ import {
     BooleanSymbolNode,
     BuiltInBinopNode,
     ConstructorNode,
+    EqualityFunction,
     IntegerNode,
     IntegerSymbolNode,
     StringNode,
@@ -81,6 +82,7 @@ export const parseProgram = (program: string): Environment => {
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Z3String<T>).concat((b as Z3String<T>)),
             <T extends string>(a, context) => context.String.val(a),
             StringNode, StringSymbolNode, StringNode, StringSymbolNode)],
+        // TODO support string comparison
         [">", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode, boolean, ConstructorNode, BooleanSymbolNode>(
             (a, b) => a > b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).gt((b as Arith<T>)),
@@ -100,7 +102,9 @@ export const parseProgram = (program: string): Environment => {
             (a, b) => a <= b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).le((b as Arith<T>)),
             <T extends string>(a, context) => context.Int.val(a),
-            IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)]
+            IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)],
+        ["=", new EqualityFunction(false)],
+        ["<>", new EqualityFunction(true)]
     ])
     const initialConstructors: Constructors = new Map([
         [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],
