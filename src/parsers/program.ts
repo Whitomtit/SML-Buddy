@@ -1,5 +1,5 @@
 import Parser from "tree-sitter";
-import {isDeclaration, parseFunctionDeclaration, parseValueDeclaration} from "./declaration";
+import {isDeclaration, parseFunctionDeclaration, parseInfixDeclaration, parseValueDeclaration} from "./declaration";
 import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
 import {
@@ -14,14 +14,14 @@ import {
     StringSymbolNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
-import {DATATYPE_DECLARATION, FUNCTION_DECLARATION, VALUE_DECLARATION} from "./const";
+import {DATATYPE_DECLARATION, FUNCTION_DECLARATION, INFIX_DECLARATION, VALUE_DECLARATION} from "./const";
 import {parseDatatypeDeclaration} from "./datatype";
 import {NotImplementedError, UnexpectedError} from "../models/errors";
 import {Arith, Expr} from "z3-solver";
 import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
 import {String as Z3String} from "../models/context";
 
-export type InfixType = "Left" | "Right"
+export type InfixType = "Left" | "Right" | "NonInfix"
 export type Infix = {
     infix: InfixType
     precedence: number
@@ -155,6 +155,9 @@ export const parseProgram = (program: string): Environment => {
                 break
             case VALUE_DECLARATION:
                 environment.bindings = new Map([...environment.bindings, ...parseValueDeclaration(declaration, environment)])
+                break
+            case INFIX_DECLARATION:
+                environment.infixData = new Map([...environment.infixData, ...parseInfixDeclaration(declaration)])
                 break
             default:
                 throw new NotImplementedError("Declaration not implemented: " + declaration.type + " || " + declaration.text)

@@ -223,7 +223,7 @@ const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment)
     for (let i = 1; i < children.length; i++) {
         const infixName = children[i].text
         const infixData = env.infixData.get(infixName)
-        if (infixData && (infixData.precedence < leastPrecedence || (infixData.precedence === leastPrecedence && leastInfixType === "Left"))) {
+        if (infixData && infixData.infix !== "NonInfix" && (infixData.precedence < leastPrecedence || (infixData.precedence === leastPrecedence && leastInfixType === "Left"))) {
             leastPrecedence = infixData.precedence
             leastInfixType = infixData.infix
             leastIndex = i

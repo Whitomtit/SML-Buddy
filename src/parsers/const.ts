@@ -11,7 +11,6 @@ export const ABSTRACT_TYPE_DECLARATION = "abstype_ldec";
 export const EXCEPTION_DECLARATION = "exception_ldec";
 // TODO implement
 export const OPEN_DECLARATION = "open_ldec";
-// TODO implement
 export const INFIX_DECLARATION = "fixity_ldec";
 
 // TODO implement
@@ -39,6 +38,10 @@ export const FUNCTION_BIND = "fb";
 export const VALUE_BIND = "vb";
 export const CLAUSE = "clause";
 export const RULE = "rule";
+
+export const LEFT_INFIX = 'infix'
+export const RIGHT_INFIX = 'infixr'
+export const NON_INFIX = 'nonfix'
 
 export const OP = "op"
 

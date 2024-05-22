@@ -223,7 +223,7 @@ export class ApplicationNode extends SymbolicNode {
     readonly nodes: SymbolicNode[];
 
     static isInfix<T>(node: (SymbolicNode | T), infixData: InfixData): boolean {
-        return node instanceof IdentifierNode && !node.opped && infixData.has(node.name)
+        return node instanceof IdentifierNode && !node.opped && infixData.has(node.name) && infixData.get(node.name).infix !== "NonInfix"
     }
 
     size(): number {

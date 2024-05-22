@@ -1,9 +1,20 @@
 import Parser from "tree-sitter";
-import {CLAUSE, DECLARATIONS, FUNCTION_BIND, VALUE_BIND} from "./const";
-import {Bindings, Environment} from "./program";
-import {RecursiveFunctionNode, SymbolicNode} from "../models/symbolic_nodes";
+import {
+    CLAUSE,
+    DECLARATIONS,
+    FUNCTION_BIND,
+    INT_CONSTANT,
+    LEFT_INFIX,
+    NON_INFIX,
+    RIGHT_INFIX,
+    VALUE_BIND
+} from "./const";
+import {Bindings, Environment, Infix, InfixData, InfixType} from "./program";
+import {IntegerNode, RecursiveFunctionNode, SymbolicNode} from "../models/symbolic_nodes";
 import {isPattern, parsePattern, Pattern} from "./pattern";
 import {parseExpression} from "./expression";
+import {UnexpectedError} from "../models/errors";
+import {parseConstant} from "./constant";
 
 export const isDeclaration = (node: Parser.SyntaxNode): boolean => {
     return DECLARATIONS.includes(node.type)
@@ -44,6 +55,37 @@ const parseValueBind = (node: Parser.SyntaxNode, env: Environment): Bindings => 
     const pattern = parsePattern(node.firstChild, env)
     const exp = parseExpression(node.lastChild, env)
     return pattern(exp.evaluate(env)).bindings
+}
+
+export const parseInfixDeclaration = (node: Parser.SyntaxNode): InfixData => {
+    const infixType = parseInfixType(node.firstChild)
+    let firstIdChild = 1
+    let precedence = -1
+    if (node.children[1].type === INT_CONSTANT) {
+        firstIdChild = 2
+        precedence = (parseConstant(node.children[1]) as IntegerNode).value
+    }
+    const infix: Infix = {
+        infix: infixType,
+        precedence: precedence
+    }
+    return node.children.slice(firstIdChild).reduce(
+        (acc: InfixData, idNode): InfixData => acc.set(idNode.text, infix),
+        new Map<string, Infix>()
+    )
+}
+
+const parseInfixType = (node: Parser.SyntaxNode): InfixType => {
+    switch (node.type) {
+        case NON_INFIX:
+            return "NonInfix"
+        case LEFT_INFIX:
+            return "Left"
+        case RIGHT_INFIX:
+            return "Right"
+        default:
+            throw new UnexpectedError()
+    }
 }
 
 export type Clause = {
