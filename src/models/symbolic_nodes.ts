@@ -3,6 +3,7 @@ import {Pattern, tryMatch} from "../parsers/pattern";
 import {Bindings, Constructors, Environment, getTupleConstructorName, InfixData} from "../parsers/program";
 import {BuiltinOperationError, UnexpectedError, VariableNotDefinedError} from "./errors";
 import {Clause} from "../parsers/declaration";
+import {CustomContext, String} from "./context";
 import {
     ApplicableSymBind,
     bindingsToSym,
@@ -15,8 +16,7 @@ import {
     SymEnvironment,
     zip
 } from "./utils";
-import {Bool, Expr} from "z3-solver";
-import {CustomContext} from "./context";
+import {Bool, Expr, IntNum, Model} from "z3-solver";
 
 export abstract class SymbolicNode {
     size(): number {
@@ -48,6 +48,10 @@ export abstract class SymbolicNode {
         }
         throw new UnexpectedError()
     }
+
+    abstract concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode
+
+    abstract toSMLString(infixData: InfixData): string
 }
 
 export interface ApplicableNode {
@@ -60,6 +64,8 @@ export interface ApplicableNode {
     evaluate(env: Environment): ApplicableNode
 
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): [ApplicableSymBind<T>]
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): ApplicableNode
 }
 
 export interface ValuableNode<T> {
@@ -110,6 +116,15 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
     toString() {
         return this.value.toString();
     }
+
+    concretize<T extends string>(checkResult: Model<T>) {
+        return this
+    }
+
+    toSMLString(infixData: InfixData): string {
+        return (this.value) < 0 ? `~${Math.abs(this.value)}` : this.value.toString()
+    }
+
 }
 
 export class StringNode extends SymbolicNode implements ValuableNode<string> {
@@ -150,6 +165,14 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
             return this.eqZ3To(other, context)
         }
         return super.eqTo(other, context)
+    }
+
+    concretize<T extends string>(checkResult: Model<T>): SymbolicNode {
+        return this;
+    }
+
+    toSMLString(infixData: InfixData): string {
+        return `"${this.value}"`
     }
 }
 
@@ -219,6 +242,14 @@ export class IdentifierNode extends SymbolicNode {
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         throw new UnexpectedError()
+    }
+
+    concretize<T extends string>(checkResult: Model<T>): SymbolicNode {
+        return this;
+    }
+
+    toSMLString(infixData: InfixData): string {
+        return this.name;
     }
 }
 
@@ -354,6 +385,14 @@ export class ApplicationNode extends SymbolicNode {
     toString() {
         return `(${this.nodes.join(" ")})`
     }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new ApplicationNode(this.nodes.map(node => node.concretize(model, context)));
+    }
+
+    toSMLString(infixData: InfixData): string {
+        return `(${this.nodes.map(node => node.toSMLString(infixData)).join(" ")})`
+    }
 }
 
 export class ConstructorNode extends SymbolicNode implements SymValuableNode, ValuableNode<boolean> {
@@ -408,6 +447,17 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         if (other instanceof ConstructorNode && this.name === other.name) {
             let result: boolean | Bool<T> = true;
+            // handle special case for parameterless constructors
+            if (this.args.length === 0 && other.args.length === 1) {
+                const arg = other.args[0]
+                if (arg instanceof ConstructorNode && arg.name === getTupleConstructorName(0))
+                    return true
+            }
+            if (this.args.length === 1 && other.args.length === 0) {
+                const arg = this.args[0]
+                if (arg instanceof ConstructorNode && arg.name === getTupleConstructorName(0))
+                    return true
+            }
             for (let [arg, otherArg] of zip(this.args, other.args)) {
                 const subEquality = arg.eqTo<T>(otherArg, context)
                 if (subEquality === false) {
@@ -427,7 +477,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
             return this.eqZ3To(this, context)
         }
         if (other instanceof ConstructorNode) {
-            return context.Bool.val(false)
+            return false
         }
         return super.eqTo(other, context);
     }
@@ -449,13 +499,32 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
         if (this.name === "false") return context.Bool.val(false)
         throw new UnexpectedError()
     }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new ConstructorNode(this.args.map(arg => arg.concretize(model, context)), this.name)
+    }
+
+    toSMLString(infixData: InfixData): string {
+        if (this.args.length === 0) return this.name
+        if (infixData.has(this.name) && infixData.get(this.name).infix !== "NonInfix") {
+            const subTuple = this.args[0] as ConstructorNode
+            return `(${subTuple.args[0].toSMLString(infixData)} ${this.name} ${subTuple.args[1].toSMLString(infixData)})`
+        }
+        if (this.args.length === 1) {
+            const arg = this.args[0]
+            if (arg instanceof ConstructorNode && arg.name === getTupleConstructorName(0)) {
+                return this.name
+            }
+            return `(${this.name} ${this.args[0].toSMLString(infixData)})`
+        }
+        return `(${this.args.map(arg => arg.toSMLString(infixData)).join(", ")})`
+    }
 }
 
 export class BooleanNode extends ConstructorNode {
     constructor(value: boolean) {
         super([], value ? "true" : "false")
     }
-
 }
 
 export class FunctionNode extends SymbolicNode implements ApplicableNode {
@@ -635,6 +704,19 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     toString() {
         return "λx." + this.clauses[0].body.toString()
     }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): FunctionNode {
+        return new FunctionNode(this.clauses.map(({patterns, body}) => ({
+            patterns,
+            body: body.concretize(model, context)
+        })), this.closure, this.args.map(arg => (arg as SymbolicNode).concretize(model, context)))
+    }
+
+    toSMLString(infixData: InfixData): string {
+        const clause = this.clauses[0]
+        const paramName = clause.patterns[0](new IdentifierNode("_")).bindings.keys().next().value as string
+        return `fn ${paramName} => ${this.clauses[0].body.toSMLString(infixData)}`
+    }
 }
 
 export class RecursiveFunctionNode extends FunctionNode implements ApplicableNode {
@@ -663,6 +745,10 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
             path,
             value: new RecursiveFunctionNode(this.name, this.clauses, this.closure, [], this.deepLimit - 1)
         }])
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
     }
 }
 
@@ -698,6 +784,14 @@ export class BuiltInFunctionNode extends SymbolicNode implements ApplicableNode 
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
+        throw new UnexpectedError()
+    }
+
+    concretize<T extends string>(checkResult: Model<T>): BuiltInFunctionNode {
+        return this;
+    }
+
+    toSMLString(infixData: InfixData): string {
         throw new UnexpectedError()
     }
 }
@@ -895,6 +989,13 @@ export class AndNode extends SymbolicNode {
         return summary
     }
 
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new AndNode(this.left.concretize(model, context), this.right.concretize(model, context));
+    }
+
+    toSMLString(infixData: InfixData): string {
+        return `(${this.left.toSMLString(infixData)} andalso ${this.right.toSMLString(infixData)})`
+    }
 }
 
 export class OrNode extends SymbolicNode {
@@ -987,6 +1088,13 @@ export class OrNode extends SymbolicNode {
         return summary
     }
 
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new OrNode(this.left.concretize(model, context), this.right.concretize(model, context));
+    }
+
+    toSMLString(infixData: InfixData): string {
+        return `(${this.left.toSMLString(infixData)} orelse ${this.right.toSMLString(infixData)})`
+    }
 }
 
 export class HoleNode extends SymbolicNode {
@@ -1023,6 +1131,14 @@ export class HoleNode extends SymbolicNode {
 
     toString() {
         return "_"
+    }
+
+    concretize<T extends string>(checkResult: Model<T>): SymbolicNode {
+        throw new UnexpectedError()
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
     }
 }
 
@@ -1068,6 +1184,15 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
     toString() {
         return "I"
     }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        const value = model.get(this.valueSupplier(context)) as IntNum<T>
+        return new IntegerNode(parseInt(value.asString()))
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
+    }
 }
 
 export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
@@ -1112,6 +1237,15 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
     toString() {
         return "S"
     }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        const value = (this.valueSupplier(context) as String<T>).getFromModel(model)
+        return new StringNode(value.toString())
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
+    }
 }
 
 export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
@@ -1148,6 +1282,13 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
         return [{path, value: this}]
     }
 
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        throw new UnexpectedError()
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
+    }
 }
 
 export class BottomNode extends SymbolicNode {
@@ -1180,6 +1321,14 @@ export class BottomNode extends SymbolicNode {
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         return false
+    }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        throw new UnexpectedError()
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
     }
 }
 
@@ -1214,6 +1363,13 @@ export class ExceptionNode extends SymbolicNode {
         }))
     }
 
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new ExceptionNode(this.exp.concretize(model, context))
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
+    }
 }
 
 export class HandleNode extends SymbolicNode {
@@ -1254,6 +1410,13 @@ export class HandleNode extends SymbolicNode {
         return [...successfulValues, ...evaluatedMatch.value.symbolicApply(context, exceptionValues, context.Bool.val(true), onHandleFail)]
     }
 
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new HandleNode(this.exp.concretize(model, context), this.match.concretize(model, context) as ApplicableNode & SymbolicNode)
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
+    }
 }
 
 export class SelectorNode extends BuiltInFunctionNode {
@@ -1288,6 +1451,14 @@ export class SelectorNode extends BuiltInFunctionNode {
     }
 
     toString() {
+        return `#${this.index}`
+    }
+
+    concretize<T extends string>(checkResult: Model<T>): BuiltInFunctionNode {
+        return this
+    }
+
+    toSMLString(infixData: InfixData): string {
         return `#${this.index}`
     }
 }

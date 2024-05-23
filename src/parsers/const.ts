@@ -109,7 +109,6 @@ export const OP_EXPRESSION = "op_exp";
 // TODO implement
 export const ACCESS_EXPRESSION = "access_exp";
 export const CONSTANT_EXPRESSION = "constant_exp";
-// TODO implement
 export const SELECTOR_EXPRESSION = "selector_exp";
 // TODO implement
 export const RECORD_EXPRESSION = "rec_exp";

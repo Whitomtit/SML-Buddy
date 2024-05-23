@@ -31,36 +31,14 @@ datatype lst = Int of int | App of (lst * lst);
 fun map (f, (Int n)) = if n > 0 then Int (f n) else Int n
   | map (f, (App(a, b))) = App (map (f, a), map (f, b));
 
-
-
-
 fun f final_op nil = final_op ()
   | f final_op (x::xs) = x * f final_op xs;
 
-fun test 0 = nil
-  | test n = n::(test (n-1));
-
 fun cool_func n () = n;
-
-fun test_a_ x 1 = 1
-  | test_a_ x 2 = 3
-  | test_a_ x n = n;
-
-fun test_b_ x n = n;
-
-fun test_a n = f (cool_func (test_a_ (n + 1) n)) (test n)
-fun test_b n = f (cool_func (test_b_ (n * 4) n)) (test n);
 
 val x = ["hello"];
 val [x] = x;
 val y = ["DD", "d", x];
-
-exception Hello of int;
-
-fun sub_a [_, "DD", "d", "hello"] = raise Hello 0
-  | sub_a l = case l of [] => 0 | (_::xs) => op+ (1, (sub_a xs))
-
-fun test_a l = (sub_a l) > 1 handle Hello x => x > 1;
 
 nonfix + <>;
 infix 4 <>;
@@ -68,6 +46,4 @@ infix 4 <>;
 fun sub_b ([]:string list) = if true andalso true then 0 else 1
   | sub_b (x::xs) = if xs = y andalso x <> "bye" then 1 else +(1, (sub_b xs));
 
-fun test_b l = ((sub_b l) > 1) andalso false orelse ((sub_b l) > 1);
-
-fun main n = test_a ["", "DD", "d", "hello"];
+fun test l = ((sub_b l) > 1) andalso false orelse ((sub_b l) > 1);

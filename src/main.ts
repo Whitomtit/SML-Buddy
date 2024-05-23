@@ -1,5 +1,5 @@
 import Heap from "heap-js";
-import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "./models/types";
+import {CompoundType, PolymorphicType, PrimitiveType, Type} from "./models/types";
 import {HoleNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
 import {parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
@@ -9,8 +9,8 @@ import {createCustomContext} from "./models/context";
 import {SymbolicExecutor} from "./engine/symbolicExecutor";
 
 const main = async () => {
-    const targetType = new TupleType([new FunctionType(new PrimitiveType("int"), new PrimitiveType("int")), new PrimitiveType("lst")])
-    const targetFun = "map"
+    const targetType = new CompoundType(PrimitiveType.STRING, new PrimitiveType("list"))
+    const targetFun = "test"
 
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
@@ -33,25 +33,30 @@ const main = async () => {
 
     printSection("GENERATOR")
 
-    const generator = new Generator(buggyEnv.constructors)
+    const generator = new Generator(referenceEnv.constructors)
     while (minHeap.size() > 0) {
         const testCase = minHeap.pop()
         if (testCase.isGround()) {
             console.log("CHECKING ", testCase.toString(), testCase.size())
             const checkResult = await symbolicExecutor.check(testCase)
             if (checkResult) {
+                console.log("FOUND CANDIDATE")
+                const concreteCase = testCase.concretize(checkResult, context)
+                const referenceResult = referenceFun.apply(concreteCase.evaluate(referenceEnv))
+                const checkedResult = buggyFun.apply(concreteCase.evaluate(buggyEnv))
+                if (referenceResult.eqTo(checkedResult)) {
+                    continue
+                }
                 console.log("FOUND")
-                console.log(testCase.toString())
-                console.log(checkResult.toString())
+                console.log(concreteCase.toSMLString(referenceEnv.infixData))
                 break
             }
             continue
         }
         generator.generate(testCase, minHeap)
-
-        // if (testCase.size() >= 10) break
     }
     printSection("END")
+    process.exit(0)
 }
 
 const printSection = (title: string) => {

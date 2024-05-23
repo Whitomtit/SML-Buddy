@@ -6,6 +6,7 @@ import {
     Context,
     Expr,
     FuncDecl,
+    Model,
     Sort,
     Z3_ast,
     Z3_error_code,
@@ -28,6 +29,8 @@ export interface StringSort<Name extends string = 'main'> extends Sort<Name> {
 
 export interface String<Name extends string = 'main'> extends Expr<Name, StringSort<Name>, Z3_ast> {
     concat(other: String<Name>): String<Name>;
+
+    getFromModel(model: Model<Name>): string
 }
 
 export interface StringCreation<Name extends string = 'main'> {
@@ -202,6 +205,10 @@ export const createCustomContext = <Name extends string>(ctx: Context<Name>, Z3)
 
         concat(other: String<Name>): String<Name> {
             return new StringImpl(check(Z3.mk_seq_concat(this.ctx.ptr, [this.ast, other.ast])));
+        }
+
+        getFromModel(model: Model<Name>): string {
+            return model.eval(this).toString().slice(1, -1)
         }
     }
 

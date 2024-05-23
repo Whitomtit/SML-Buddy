@@ -33,3 +33,15 @@ datatype lst = Int of int | App of (lst * lst);
 
 fun map (f, (Int n)) = Int (f n)
   | map (f, (App(a, b))) = App (map (f, a), map (f, b));
+
+fun f final_op nil = final_op ()
+  | f final_op (x::xs) = x * f final_op xs;
+
+fun cool_func n () = n;
+
+exception Hello of int;
+
+fun sub_a [_, "DD", "d", "hello"] = raise Hello 0
+  | sub_a l = case l of [] => 0 | (_::xs) => op+ (1, (sub_a xs))
+
+fun test l = (sub_a l) > 1 handle Hello x => x > 1;
