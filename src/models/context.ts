@@ -18,6 +18,9 @@ import {UnexpectedError} from "./errors";
 
 export interface CustomContext<Name extends string> extends Context<Name> {
     readonly String: StringCreation<Name>;
+    AndBool: (a: Bool<Name>, b: Bool<Name>) => Bool<Name>;
+    OrBool: (a: Bool<Name>, b: Bool<Name>) => Bool<Name>;
+    EqBool: (a: Bool<Name>, b: Bool<Name>) => Bool<Name>;
 }
 
 export interface StringSort<Name extends string = 'main'> extends Sort<Name> {
@@ -202,6 +205,33 @@ export const createCustomContext = <Name extends string>(ctx: Context<Name>, Z3)
         }
     }
 
+    const trueBool = ctx.Bool.val(true)
+    trueBool.and = (other: Bool<Name>): Bool<Name> => {
+        return other
+    }
+    trueBool.or = (_: Bool<Name>): Bool<Name> => {
+        return trueBool
+    }
+    trueBool.not = (): Bool<Name> => {
+        return falseBool
+    }
+    trueBool.eq = (other: Bool<Name>): Bool<Name> => {
+        return other
+    }
+    const falseBool = ctx.Bool.val(false)
+    falseBool.and = (_: Bool<Name>): Bool<Name> => {
+        return falseBool
+    }
+    falseBool.or = (other: Bool<Name>): Bool<Name> => {
+        return other
+    }
+    falseBool.not = (): Bool<Name> => {
+        return trueBool
+    }
+    falseBool.eq = (other: Bool<Name>): Bool<Name> => {
+        return other.not()
+    }
+
     return {
         ...ctx,
         String: {
@@ -215,6 +245,42 @@ export const createCustomContext = <Name extends string>(ctx: Context<Name>, Z3)
                 const str = check(Z3.mk_string(ctx.ptr, value))
                 return new StringImpl(str)
             },
+        },
+        Bool: {
+            ...ctx.Bool,
+            val: (val: boolean) => {
+                if (val) {
+                    return trueBool
+                }
+                return falseBool
+            }
+        },
+        AndBool: (a: Bool<Name>, b: Bool<Name>): Bool<Name> => {
+            if (b === trueBool) {
+                return a
+            }
+            if (b === falseBool) {
+                return falseBool
+            }
+            return a.and(b)
+        },
+        OrBool: (a: Bool<Name>, b: Bool<Name>): Bool<Name> => {
+            if (b === trueBool) {
+                return trueBool
+            }
+            if (b === falseBool) {
+                return a
+            }
+            return a.or(b)
+        },
+        EqBool: (a: Bool<Name>, b: Bool<Name>): Bool<Name> => {
+            if (b === trueBool) {
+                return a
+            }
+            if (b === falseBool) {
+                return a.not()
+            }
+            return a.eq(b)
         },
     }
 }

@@ -11,7 +11,6 @@
     ]
   },
   "include": [
-    "src/**/*",
-    "../../AppData/Local/JetBrains/WebStorm2024.1/javascript/typings/node/20.12.7/node_modules/@types/node/globals.d.ts"
+    "src/**/*"
   ]
 }

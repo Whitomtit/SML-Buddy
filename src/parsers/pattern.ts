@@ -73,7 +73,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                         if (result.condition === null) {
                             result.condition = condition
                         } else {
-                            result.condition = result.condition.and(condition)
+                            result.condition = context.AndBool(result.condition, (condition))
                         }
                     }
                 }
@@ -185,7 +185,7 @@ const infixConstructorPattern = (constructorName: string, leftPattern: Pattern, 
 
         let condition: Bool<T> = null
         if (left.condition !== null && right.condition !== null) {
-            condition = left.condition.and(right.condition)
+            condition = context.AndBool(left.condition, (right.condition))
         } else if (left.condition !== null) {
             condition = left.condition
         } else if (right.condition !== null) {

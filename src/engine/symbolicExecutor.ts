@@ -53,9 +53,9 @@ export class SymbolicExecutor<T extends string> {
                 if (checkedValue instanceof BottomNode) {
                     return acc
                 }
-                return acc.or(symBind.path.and(referenceValue.eqZ3To(checkedValue, this.context)))
+                return this.context.OrBool(acc, this.context.AndBool(symBind.path, (referenceValue.eqZ3To(checkedValue, this.context))))
             }, this.context.Bool.val(false))
-            return formula.and(symBind.path.implies(rhe))
+            return this.context.AndBool(formula, (symBind.path.implies(rhe)))
         }, this.context.Bool.val(true))
         this.solver.reset()
 

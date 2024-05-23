@@ -180,7 +180,7 @@ export class IdentifierNode extends SymbolicNode {
         const value = env.bindings.get(this.name)
         if (!value) throw new VariableNotDefinedError(this.name)
 
-        return value.map((symBind) => ({path: path.and(symBind.path), value: symBind.value}))
+        return value.map((symBind) => ({path: context.AndBool(path, (symBind.path)), value: symBind.value}))
     }
 
     toString() {
@@ -201,7 +201,7 @@ export class IdentifierNode extends SymbolicNode {
         return new BuiltInFunctionNode(
             (args) => new ConstructorNode([args], this.name),
             (context, argument, path) => argument.map((symBind) => ({
-                path: symBind.path.and(path),
+                path: context.AndBool(symBind.path, (path)),
                 value: new ConstructorNode([symBind.value], this.name)
             }))
         )
@@ -252,7 +252,7 @@ export class ApplicationNode extends SymbolicNode {
                 acc.concat((<ApplicableNode><unknown>funcSymBind.value).symbolicApply(context, arg, funcSymBind.path)), [])
         const applyInfix = (left: Summary<T>, infix: Summary<T>, right: Summary<T>): Summary<T> =>
             applyFunction(infix, product([left, right]).map(([l, r]) => ({
-                path: l.path.and(r.path),
+                path: context.AndBool(l.path, r.path),
                 value: new ConstructorNode([l.value, r.value], getTupleConstructorName(2))
             })))
         return this.baseEvaluate<Summary<T>>(
@@ -375,7 +375,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
             const args = binds.map(({value}) => value)
             const combined_path =
                 binds.reduce((combined_path, {path}) =>
-                    context.And(combined_path, path), context.Bool.val(true))
+                    context.AndBool(combined_path, path), context.Bool.val(true))
             return {path: combined_path, value: new ConstructorNode(args, this.name)}
         })
     }
@@ -383,7 +383,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
     eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof ConstructorNode && this.name === other.name) {
             return this.args.reduce((acc, arg, i) => {
-                return context.And(acc, arg.eqZ3To(other.args[i], context))
+                return context.AndBool(acc, arg.eqZ3To(other.args[i], context))
             }, context.Bool.val(true))
         }
         if (other instanceof BooleanSymbolNode) {
@@ -406,7 +406,10 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
                 if (subEquality === true) {
                     continue
                 }
-                result = subEquality.and(result)
+                if (typeof result === "boolean") {
+                    result = context.Bool.val(result as boolean)
+                }
+                result = context.AndBool(subEquality, result)
             }
             return result
         }
@@ -505,10 +508,10 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                     constructors: this.closure.constructors,
                     infixData: this.closure.infixData
                 }
-                const callPath = combinedPath.and(matchPath)
+                const callPath = context.AndBool(combinedPath, matchPath)
                 successfulClauses.push([clause, env, callPath])
 
-                combinedPath = combinedPath.and(matchPath.not())
+                combinedPath = context.AndBool(combinedPath, matchPath.not())
             }
             // pattern matching non-exhaustive
             const summary: Summary<T> = onMatchException ? onMatchException(combinedPath) : [{
@@ -587,13 +590,13 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         for (let {path, value} of arg) {
             const patternResult = tryMatch(() => pattern(value, context))
             if (patternResult === null) continue
-            const argPath = (patternResult.condition === null) ? path : path.and(patternResult.condition)
+            const argPath = (patternResult.condition === null) ? path : context.AndBool(path, patternResult.condition)
             if (patternPath === null) {
                 patternPath = argPath
             } else {
-                patternPath = patternPath.or(argPath)
+                patternPath = context.OrBool(patternPath, argPath)
             }
-            mergeSymBindingsInto(patternBindings, bindingsToSym(patternResult.bindings, combinedPath.and(argPath)))
+            mergeSymBindingsInto(patternBindings, bindingsToSym(patternResult.bindings, context.AndBool(combinedPath, argPath)))
         }
         return [patternBindings, patternPath]
     }
@@ -602,10 +605,10 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         let clauseBindings: SymBindings<T> = new Map()
         let clausePath: Bool<T> = context.Bool.val(true)
         for (const [pattern, argSummary] of zip(clause.patterns, args)) {
-            const [patternBindings, patternPath] = this.applySymPattern(pattern, argSummary, combinedPath.and(clausePath), context)
+            const [patternBindings, patternPath] = this.applySymPattern(pattern, argSummary, context.AndBool(combinedPath, clausePath), context)
             if (patternPath === null) return null
             clauseBindings = new Map([...clauseBindings, ...patternBindings])
-            clausePath = clausePath.and(patternPath)
+            clausePath = context.AndBool(clausePath, patternPath)
         }
         return [clauseBindings, clausePath]
     }
@@ -711,7 +714,7 @@ export class BuiltInBinopNode<
         }, <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> => {
             return argument.reduce((acc: Summary<T>, symBind) => {
                 const node = symBind.value
-                const nodePath = symBind.path.and(path)
+                const nodePath = context.AndBool(symBind.path, path)
                 if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
                     throw new BuiltinOperationError("Expected tuple with two elements")
                 }
@@ -757,7 +760,7 @@ export class EqualityFunction extends BuiltInFunctionNode {
             <T extends string>(context: CustomContext<T>, argument: Summary<T>, path: Bool<T>): Summary<T> => {
                 return argument.map((symBind): SymBind<T> => {
                     const node = symBind.value
-                    const nodePath = path.and(symBind.path)
+                    const nodePath = context.AndBool(path, symBind.path)
                     if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(2)) {
                         throw new BuiltinOperationError("Expected tuple with two elements")
                     }
@@ -830,7 +833,7 @@ export class AndNode extends SymbolicNode {
             if (leftValue instanceof ConstructorNode) {
                 if (leftValue.value) {
                     summary.push(...rightSummary.map((rightSymBind) => ({
-                        path: leftSymBind.path.and(rightSymBind.path),
+                        path: context.AndBool(leftSymBind.path, rightSymBind.path),
                         value: rightSymBind.value
                     })))
                 } else {
@@ -847,19 +850,19 @@ export class AndNode extends SymbolicNode {
                 const rightValue = rightSymBind.value
                 if (rightValue instanceof BottomNode) {
                     summary.push({
-                        path: leftSymBind.path.and(leftValue.getZ3Value(context)).and(rightSymBind.path),
+                        path: context.AndBool(context.AndBool(leftSymBind.path, leftValue.getZ3Value(context)), rightSymBind.path),
                         value: rightValue
                     })
                     summary.push({
-                        path: leftSymBind.path.and(leftValue.getZ3Value(context).not()),
+                        path: context.AndBool(leftSymBind.path, leftValue.getZ3Value(context).not()),
                         value: leftValue
                     })
                     return
                 }
                 if (rightValue instanceof ConstructorNode || rightValue instanceof BooleanSymbolNode) {
                     summary.push({
-                        path: leftSymBind.path.and(rightSymBind.path),
-                        value: new BooleanSymbolNode((context) => leftValue.getZ3Value(context).and(rightValue.getZ3Value(context)))
+                        path: context.AndBool(leftSymBind.path, rightSymBind.path),
+                        value: new BooleanSymbolNode((context) => context.AndBool(leftValue.getZ3Value(context), rightValue.getZ3Value(context)))
                     })
                     return
                 }
@@ -922,7 +925,7 @@ export class OrNode extends SymbolicNode {
             if (leftValue instanceof ConstructorNode) {
                 if (!leftValue.value) {
                     summary.push(...rightSummary.map((rightSymBind) => ({
-                        path: leftSymBind.path.and(rightSymBind.path),
+                        path: context.AndBool(leftSymBind.path, rightSymBind.path),
                         value: rightSymBind.value
                     })))
                 } else {
@@ -939,19 +942,19 @@ export class OrNode extends SymbolicNode {
                 const rightValue = rightSymBind.value
                 if (rightValue instanceof BottomNode) {
                     summary.push({
-                        path: leftSymBind.path.and(leftValue.getZ3Value(context).not()).and(rightSymBind.path),
+                        path: context.AndBool(context.AndBool(leftSymBind.path, leftValue.getZ3Value(context).not()), rightSymBind.path),
                         value: rightValue
                     })
                     summary.push({
-                        path: leftSymBind.path.and(leftValue.getZ3Value(context)),
+                        path: context.AndBool(leftSymBind.path, leftValue.getZ3Value(context)),
                         value: leftValue
                     })
                     return
                 }
                 if (rightValue instanceof ConstructorNode || rightValue instanceof BooleanSymbolNode) {
                     summary.push({
-                        path: leftSymBind.path.and(rightSymBind.path),
-                        value: new BooleanSymbolNode((context) => leftValue.getZ3Value(context).or(rightValue.getZ3Value(context)))
+                        path: context.AndBool(leftSymBind.path, rightSymBind.path),
+                        value: new BooleanSymbolNode((context) => context.OrBool(leftValue.getZ3Value(context), rightValue.getZ3Value(context)))
                     })
                     return
                 }
@@ -1137,7 +1140,7 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
 
     eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
         if (other instanceof BooleanSymbolNode || other instanceof ConstructorNode) {
-            return this.getZ3Value(context).eq(other.getZ3Value(context))
+            return context.EqBool(this.getZ3Value(context), other.getZ3Value(context))
         }
         throw new UnexpectedError()
     }
@@ -1260,7 +1263,7 @@ export class HandleNode extends SymbolicNode {
         )
         const successfulValues = evalResult.filter(({value}) => !(value instanceof BottomNode))
         const onHandleFail = (matchPath) => bottomValues.map(({path, value}) => ({
-            path: matchPath.and(path),
+            path: context.AndBool(matchPath, path),
             value
         }))
         const evaluatedMatch = this.match.summarize(context, env, path)[0]
