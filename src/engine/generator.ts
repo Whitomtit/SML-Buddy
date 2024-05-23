@@ -1,18 +1,20 @@
 import {
     ApplicationNode,
     ConstructorNode,
+    FunctionNode,
     HoleNode,
     IdentifierNode,
     IntegerSymbolNode,
+    SelectorNode,
     StringSymbolNode,
     SymbolicNode,
-    TestFunctionNode
 } from "../models/symbolic_nodes";
 import {AddableContainer, Interception} from "../models/containers";
 import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "../models/types";
 import {BINARY_OPS, substitute} from "../models/utils";
 import {MergeError, UnexpectedError} from "../models/errors";
 import {Constructors, getTupleConstructorName} from "../parsers/program";
+import {identifierPattern} from "../parsers/pattern";
 
 export class Generator {
     private readonly constructors: Constructors
@@ -63,17 +65,15 @@ export class Generator {
                     const freshType = consType.clone(new Map())
                     testCase.type.mergeWith(freshType.returnType, substitution)
 
-                    if (freshType.argType instanceof TupleType) {
-                        if (freshType.argType.elementTypes.length === 0) {
-                            minHeap.push(new ConstructorNode([], consName))
-                            return
-                        }
-                        const args = freshType.argType.elementTypes.map((type) => new HoleNode(type, testCase.env, substitution))
-                        minHeap.push(new ConstructorNode([new ConstructorNode(args, getTupleConstructorName(args.length))], consName))
-                    } else {
-                        minHeap.push(new ConstructorNode([new HoleNode(freshType.argType, testCase.env, substitution)], consName))
-                    }
+                    minHeap.push(new ConstructorNode([new HoleNode(freshType.argType, testCase.env, substitution)], consName))
                 }, testCase)
+            }
+
+            // E-Tuple
+            const currentType = substitute(testCase.type, testCase.substitution)
+            if (currentType instanceof TupleType) {
+                const args = currentType.elementTypes.map((type) => new HoleNode(type, testCase.env, new Map(testCase.substitution)))
+                minHeap.push(new ConstructorNode(args, getTupleConstructorName(args.length)))
             }
 
             // E-Fun
@@ -83,25 +83,30 @@ export class Generator {
                 const argName = this.freshArgName()
 
                 minHeap.push(
-                    new TestFunctionNode(argName,
+                    FunctionNode.generatedFunction(
+                        identifierPattern(argName),
                         new HoleNode(freshType.returnType, new Map([...testCase.env.entries(), [argName, freshType.argType]]), substitution)
-                    ))
+                    )
+                )
             }, testCase)
 
             // E-Var
-            const expandedEnv = new Map(testCase.env)
-            for (let [varName, varType] of testCase.env) {
-                varType = substitute(varType, testCase.substitution)
-                if (!(varType instanceof TupleType)) continue
-                for (let i = 0; i < varType.elementTypes.length; i++) {
-                    expandedEnv.set(`${varName}_${i}`, varType.elementTypes[i])
-                }
-            }
-            for (const [varName, varType] of expandedEnv) {
+            for (const [varName, varType] of testCase.env) {
                 tryMerge((substitution) => {
                     testCase.type.mergeWith(varType, substitution)
                     minHeap.push(new IdentifierNode(varName))
                 }, testCase)
+                const currentType = substitute(varType, testCase.substitution)
+                if (currentType instanceof TupleType) {
+                    currentType.elementTypes.forEach((type, i) => {
+                        tryMerge((substitution) => {
+                            testCase.type.mergeWith(type, substitution)
+                            minHeap.push(new ApplicationNode(
+                                [new SelectorNode(i), new IdentifierNode(varName)]
+                            ))
+                        }, testCase)
+                    })
+                }
             }
         } else if (testCase instanceof ConstructorNode) {
             for (let i = 0; i < testCase.args.length; i++) {
@@ -116,9 +121,9 @@ export class Generator {
                     }))
                 break
             }
-        } else if (testCase instanceof TestFunctionNode) {
-            this.generate(testCase.body, new Interception(minHeap,
-                (node) => new TestFunctionNode(testCase.argName, node)))
+        } else if (testCase instanceof FunctionNode) {
+            this.generate(testCase.clauses[0].body, new Interception(minHeap,
+                (node) => FunctionNode.generatedFunction(testCase.clauses[0].patterns[0], node)))
         } else if (testCase instanceof ApplicationNode) {
             const left = testCase.nodes[0]
             const op = testCase.nodes[1]

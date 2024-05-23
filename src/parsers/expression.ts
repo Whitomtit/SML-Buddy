@@ -8,6 +8,7 @@ import {
     HandleNode,
     IdentifierNode,
     OrNode,
+    SelectorNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
 import Parser from "tree-sitter";
@@ -27,6 +28,7 @@ import {
     RAISE_EXPRESSION,
     RECORD_UNIT_EXPRESSION,
     RULE,
+    SELECTOR_EXPRESSION,
     SEQUENCE_EXPRESSION,
     TUPLE_EXPRESSION,
     TUPLE_UNIT_EXPRESSION,
@@ -95,6 +97,9 @@ export const parseExpression = (node: Parser.SyntaxNode, env: Environment): Symb
             return new ExceptionNode(parseExpression(node.lastChild, env))
         case HANDLE_EXPRESSION:
             return new HandleNode(parseExpression(node.firstChild, env), parseMatch(node.lastChild, env))
+        case SELECTOR_EXPRESSION:
+            const index = parseInt(node.lastChild.text)
+            return new SelectorNode(index - 1)
         default:
             throw new NotImplementedError("Expression not implemented: " + node.type + " || " + node.text)
     }

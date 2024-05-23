@@ -52,8 +52,6 @@ export type Environment = {
 }
 
 const a = new PolymorphicType()
-const b = new PolymorphicType()
-const c = new PolymorphicType()
 
 export const list = new PrimitiveType("list")
 
@@ -169,9 +167,6 @@ export const parseProgram = (program: string): Environment => {
             })]
     ])
     const initialConstructors: Constructors = new Map([
-        [getTupleConstructorName(0), new FunctionType(new TupleType([]), new TupleType([]))],
-        [getTupleConstructorName(2), new FunctionType(new TupleType([a, b]), new TupleType([a, b]))],
-        [getTupleConstructorName(3), new FunctionType(new TupleType([a, b, c]), new TupleType([a, b, c]))],
         [LIST_CONSTRUCTOR_NAME, new FunctionType(new TupleType([a, new CompoundType(a, list)]), new CompoundType(a, list))],
         [LIST_NIL_NAME, new FunctionType(new TupleType([]), new CompoundType(a, list))],
         ["false", new FunctionType(new TupleType([]), PrimitiveType.BOOL)],

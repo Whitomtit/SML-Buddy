@@ -23,8 +23,13 @@ fun eval TRUE = true
   | eval (IMPLY(f1,f2)) = not (eval f1) orelse (eval f2)
   | eval (LESS(e1,e2)) = (exp_eval e1) < (exp_eval e2);
 
-fun max [] = ~999
+fun max [] = #3 (0,0,~999)
   | max (h::t) = if h > (max t) then h else max t;
+
+datatype lst = Int of int | App of (lst * lst);
+
+fun map (f, (Int n)) = if n > 0 then Int (f n) else Int n
+  | map (f, (App(a, b))) = App (map (f, a), map (f, b));
 
 
 

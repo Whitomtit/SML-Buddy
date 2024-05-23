@@ -35,7 +35,12 @@ export abstract class SymbolicNode {
 
     abstract summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T>
 
-    abstract eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T>;
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        if (other instanceof BottomNode) {
+            return context.Bool.val(false)
+        }
+        throw new UnexpectedError()
+    }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
         if (other instanceof BottomNode) {
@@ -89,6 +94,7 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
         if (other instanceof IntegerSymbolNode) {
             return context.Int.val(this.value).eq(other.getZ3Value(context))
         }
+        return super.eqZ3To(other, context)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>) {
@@ -129,7 +135,7 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
         if (other instanceof StringSymbolNode) {
             return other.valueSupplier(context).eq(context.String.val(this.value))
         }
-        throw new UnexpectedError()
+        return super.eqZ3To(other, context)
     }
 
     toString() {
@@ -229,7 +235,7 @@ export class ApplicationNode extends SymbolicNode {
     }
 
     size(): number {
-        return 1 + this.nodes.reduce((acc, node) => acc + node.size(), 0);
+        return this.nodes.reduce((acc, node) => acc + node.size(), 0);
     }
 
     holesNumber(): number {
@@ -344,6 +350,10 @@ export class ApplicationNode extends SymbolicNode {
         }
         return workStack[0] as T
     }
+
+    toString() {
+        return `(${this.nodes.join(" ")})`
+    }
 }
 
 export class ConstructorNode extends SymbolicNode implements SymValuableNode, ValuableNode<boolean> {
@@ -392,7 +402,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
         if (other instanceof ConstructorNode) {
             return context.Bool.val(false)
         }
-        throw new UnexpectedError()
+        super.eqZ3To(other, context)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
@@ -453,6 +463,15 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     readonly closure: Environment;
     readonly symBinds: SymBindings<any>;
     readonly args: (SymbolicNode | Summary<any>)[];
+
+    static generatedFunction(pattern: Pattern, body: SymbolicNode): FunctionNode {
+        return new FunctionNode(
+            [{
+                patterns: [pattern],
+                body
+            }], null
+        )
+    }
 
     constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null) {
         super();
@@ -611,6 +630,10 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
             clausePath = context.AndBool(clausePath, patternPath)
         }
         return [clauseBindings, clausePath]
+    }
+
+    toString() {
+        return "λx." + this.clauses[0].body.toString()
     }
 }
 
@@ -966,45 +989,6 @@ export class OrNode extends SymbolicNode {
 
 }
 
-export class TestFunctionNode extends SymbolicNode {
-    readonly argName: string;
-    readonly body: SymbolicNode;
-
-    constructor(argName: string, body: SymbolicNode) {
-        super();
-        this.argName = argName
-        this.body = body
-    }
-
-    size(): number {
-        return 1 + this.body.size();
-    }
-
-    holesNumber(): number {
-        return this.body.holesNumber();
-    }
-
-    evaluate(env: Environment): SymbolicNode {
-        throw new UnexpectedError()
-    }
-
-    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
-        throw new UnexpectedError()
-    }
-
-    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
-        throw new UnexpectedError()
-    }
-
-    eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
-        throw new UnexpectedError()
-    }
-
-    toString() {
-        return `λ${this.argName}.${this.body}`
-    }
-}
-
 export class HoleNode extends SymbolicNode {
     readonly type: Type;
     readonly env: Map<string, Type>;
@@ -1067,7 +1051,7 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
         if (other instanceof IntegerNode) {
             return this.getZ3Value(context).eq(context.Int.val(other.value))
         }
-        throw new UnexpectedError()
+        return super.eqZ3To(other, context)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
@@ -1111,7 +1095,7 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
         if (other instanceof StringNode) {
             return this.getZ3Value(context).eq(context.String.val(other.value))
         }
-        throw new UnexpectedError()
+        return super.eqZ3To(other, context)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
@@ -1142,7 +1126,7 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
         if (other instanceof BooleanSymbolNode || other instanceof ConstructorNode) {
             return context.EqBool(this.getZ3Value(context), other.getZ3Value(context))
         }
-        throw new UnexpectedError()
+        return super.eqZ3To(other, context)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
@@ -1191,7 +1175,7 @@ export class BottomNode extends SymbolicNode {
     }
 
     eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
-        throw new UnexpectedError()
+        return context.Bool.val(false)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
@@ -1270,4 +1254,40 @@ export class HandleNode extends SymbolicNode {
         return [...successfulValues, ...evaluatedMatch.value.symbolicApply(context, exceptionValues, context.Bool.val(true), onHandleFail)]
     }
 
+}
+
+export class SelectorNode extends BuiltInFunctionNode {
+    readonly index: number
+
+    constructor(index: number) {
+        super((argument) => {
+                if (argument instanceof BottomNode) {
+                    return argument
+                }
+                if (!(argument instanceof ConstructorNode)) {
+                    throw new UnexpectedError()
+                }
+                return argument.args[index]
+            },
+            <T extends string>(context: CustomContext<T>, argument: Summary<T>): Summary<T> => {
+                return argument.map(({path, value}) => {
+                    if (value instanceof BottomNode) {
+                        return {path, value}
+                    }
+                    if (!(value instanceof ConstructorNode)) {
+                        throw new UnexpectedError()
+                    }
+                    return {path, value: value.args[index]}
+                })
+            });
+        this.index = index
+    }
+
+    size(): number {
+        return 0
+    }
+
+    toString() {
+        return `#${this.index}`
+    }
 }

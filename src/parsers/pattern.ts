@@ -50,10 +50,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
             if (constructor) {
                 return parameterlessConstructorPattern(name)
             }
-            return <T extends string>(node: SymbolicNode) => ({
-                bindings: new Map<string, SymbolicNode>([[name, node]]),
-                condition: null
-            })
+            return identifierPattern(name)
         case RECORD_UNIT_PATTERN:
         case TUPLE_UNIT_PATTERN:
         case TUPLE_PATTERN:
@@ -215,6 +212,13 @@ export const parameterlessConstructorPattern = (constructorName: string): Patter
     }
 }
 
+export const identifierPattern = (name: string): Pattern => {
+    return <T extends string>(node: SymbolicNode) => ({
+        bindings: new Map<string, SymbolicNode>([[name, node]]),
+        condition: null
+    })
+}
+
 
 const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment): number => {
     let leastPrecedence = Infinity
@@ -230,7 +234,6 @@ const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment)
         }
     }
     return leastIndex
-
 }
 
 export const isPattern = (node: Parser.SyntaxNode): boolean => {

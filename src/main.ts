@@ -1,5 +1,5 @@
 import Heap from "heap-js";
-import {CompoundType, PolymorphicType, PrimitiveType, Type} from "./models/types";
+import {FunctionType, PolymorphicType, PrimitiveType, TupleType, Type} from "./models/types";
 import {HoleNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
 import {parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
@@ -9,8 +9,8 @@ import {createCustomContext} from "./models/context";
 import {SymbolicExecutor} from "./engine/symbolicExecutor";
 
 const main = async () => {
-    const targetType = new CompoundType(PrimitiveType.INT, new PrimitiveType("list"))
-    const targetFun = "max"
+    const targetType = new TupleType([new FunctionType(new PrimitiveType("int"), new PrimitiveType("int")), new PrimitiveType("lst")])
+    const targetFun = "map"
 
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
