@@ -1,5 +1,5 @@
 import Parser from "tree-sitter";
-import {Bindings, Environment, getTupleConstructorName} from "./program";
+import {Bindings, Constructors, getTupleConstructorName, InfixData} from "./program";
 import {
     BooleanSymbolNode,
     ConstructorNode,
@@ -28,7 +28,14 @@ import {parseConstant} from "./constant";
 import {NotImplementedError} from "../models/errors";
 import {Bool} from "z3-solver";
 import {CustomContext} from "../models/context";
-import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
+import {
+    bindingsToSym,
+    LIST_CONSTRUCTOR_NAME,
+    LIST_NIL_NAME,
+    mergeSymBindingsInto,
+    Summary,
+    SymBindings
+} from "../models/utils";
 
 type PatternResult<T extends string> = {
     bindings: Bindings
@@ -36,16 +43,16 @@ type PatternResult<T extends string> = {
 }
 export type Pattern = <T extends string>(node: SymbolicNode, context?: CustomContext<T>) => PatternResult<T>
 
-export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern => {
+export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): Pattern => {
     switch (node.type) {
         case APP_PATTERN:
-            return parseAppPattern(node.children, env)
+            return parseAppPattern(node.children, constructors, infixData)
         case PARENTHESIZED_PATTERN:
-            return parsePattern(node.children[1], env)
+            return parsePattern(node.children[1], constructors, infixData)
         case VARIABLE_PATTERN:
         case OP_PATTERN:
             const name = node.lastChild.text
-            const constructor = env.constructors.get(name)
+            const constructor = constructors.get(name)
             // zero parameter constructor
             if (constructor) {
                 return parameterlessConstructorPattern(name)
@@ -54,7 +61,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
         case RECORD_UNIT_PATTERN:
         case TUPLE_UNIT_PATTERN:
         case TUPLE_PATTERN:
-            const subPatterns = node.children.filter(isPattern).map((child) => parsePattern(child, env))
+            const subPatterns = node.children.filter(isPattern).map((child) => parsePattern(child, constructors, infixData))
             return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
                 if (!(node instanceof ConstructorNode) || node.name !== getTupleConstructorName(subPatterns.length)) {
                     throw new PatternMatchError()
@@ -77,7 +84,7 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                 return result
             }
         case OR_PATTERN:
-            const subPatternsOr = node.children.filter(isPattern).map((child) => parsePattern(child, env))
+            const subPatternsOr = node.children.filter(isPattern).map((child) => parsePattern(child, constructors, infixData))
             return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
                 for (const subPattern of subPatternsOr) {
                     const result = tryMatch<T>(() => {
@@ -128,13 +135,13 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
                 throw new NotImplementedError("Unsupported constant type: " + constant)
             }
         case LIST_PATTERN:
-            const listElements = node.children.filter(isPattern).map((child) => parsePattern(child, env))
+            const listElements = node.children.filter(isPattern).map((child) => parsePattern(child, constructors, infixData))
             return listElements.reduceRight(
                 (acc, subPattern) => infixConstructorPattern(LIST_CONSTRUCTOR_NAME, subPattern, acc),
                 parameterlessConstructorPattern(LIST_NIL_NAME)
             )
         case CONSTRAIN_PATTERN:
-            return parsePattern(node.firstChild, env)
+            return parsePattern(node.firstChild, constructors, infixData)
         case WILD_PATTERN:
             return <T extends string>(): PatternResult<T> => ({
                 bindings: new Map<string, SymbolicNode>(),
@@ -146,14 +153,14 @@ export const parsePattern = (node: Parser.SyntaxNode, env: Environment): Pattern
 
 }
 
-const parseAppPattern = (children: Parser.SyntaxNode[], env: Environment): Pattern => {
+const parseAppPattern = (children: Parser.SyntaxNode[], constructors: Constructors, infixData: InfixData): Pattern => {
     if (children.length === 1) {
         // just embedding another pattern
-        return parsePattern(children[0], env)
+        return parsePattern(children[0], constructors, infixData)
     } else if (children.length === 2) {
         // constructor pattern
         const constructorName = children[0].text
-        const subPattern = parsePattern(children[1], env)
+        const subPattern = parsePattern(children[1], constructors, infixData)
         return <T extends string>(node: SymbolicNode, context?: CustomContext<T>) => {
             if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
                 throw new PatternMatchError()
@@ -162,11 +169,11 @@ const parseAppPattern = (children: Parser.SyntaxNode[], env: Environment): Patte
         }
     }
     // infix including pattern
-    const leastInfixPosition = findLeastInfixPosition(children, env)
+    const leastInfixPosition = findLeastInfixPosition(children, infixData)
 
     const constructorName = children[leastInfixPosition].text
-    const leftPattern = parseAppPattern(children.slice(0, leastInfixPosition), env)
-    const rightPattern = parseAppPattern(children.slice(leastInfixPosition + 1), env)
+    const leftPattern = parseAppPattern(children.slice(0, leastInfixPosition), constructors, infixData)
+    const rightPattern = parseAppPattern(children.slice(leastInfixPosition + 1), constructors, infixData)
     return infixConstructorPattern(constructorName, leftPattern, rightPattern)
 }
 
@@ -220,16 +227,16 @@ export const identifierPattern = (name: string): Pattern => {
 }
 
 
-const findLeastInfixPosition = (children: Parser.SyntaxNode[], env: Environment): number => {
+const findLeastInfixPosition = (children: Parser.SyntaxNode[], infixData: InfixData): number => {
     let leastPrecedence = Infinity
     let leastIndex = -1
     let leastInfixType = ""
     for (let i = 1; i < children.length; i++) {
         const infixName = children[i].text
-        const infixData = env.infixData.get(infixName)
-        if (infixData && infixData.infix !== "NonInfix" && (infixData.precedence < leastPrecedence || (infixData.precedence === leastPrecedence && leastInfixType === "Left"))) {
-            leastPrecedence = infixData.precedence
-            leastInfixType = infixData.infix
+        const infix = infixData.get(infixName)
+        if (infix && infix.infix !== "NonInfix" && (infix.precedence < leastPrecedence || (infix.precedence === leastPrecedence && leastInfixType === "Left"))) {
+            leastPrecedence = infix.precedence
+            leastInfixType = infix.infix
             leastIndex = i
         }
     }
@@ -247,6 +254,23 @@ export const tryMatch = <T extends string>(f: () => PatternResult<T>): PatternRe
         if (error instanceof PatternMatchError) return null
         throw error
     }
+}
+
+export const applySymPattern = <T extends string>(pattern: Pattern, arg: Summary<T>, combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] => {
+    const patternBindings: SymBindings<T> = new Map()
+    let patternPath: Bool<T> = null
+    for (let {path, value} of arg) {
+        const patternResult = tryMatch(() => pattern(value, context))
+        if (patternResult === null) continue
+        const argPath = (patternResult.condition === null) ? path : context.AndBool(path, patternResult.condition)
+        if (patternPath === null) {
+            patternPath = argPath
+        } else {
+            patternPath = context.OrBool(patternPath, argPath)
+        }
+        mergeSymBindingsInto(patternBindings, bindingsToSym(patternResult.bindings, context.AndBool(combinedPath, argPath)))
+    }
+    return [patternBindings, patternPath]
 }
 
 export class PatternMatchError extends Error {

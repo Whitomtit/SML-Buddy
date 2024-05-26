@@ -7,6 +7,7 @@ import {
     FunctionNode,
     HandleNode,
     IdentifierNode,
+    LetNode,
     OrNode,
     SelectorNode,
     SymbolicNode
@@ -22,6 +23,7 @@ import {
     FN_EXPRESSION,
     HANDLE_EXPRESSION,
     IF_EXPRESSION,
+    LET_EXPRESSION,
     LIST_EXPRESSION,
     OP_EXPRESSION,
     ORELSE_EXPRESSION,
@@ -35,16 +37,16 @@ import {
     VAR_EXPRESSION
 } from "./const";
 import {parseConstant} from "./constant";
-import {Environment, getTupleConstructorName} from "./program";
+import {Constructors, Environment, getTupleConstructorName, InfixData} from "./program";
 import {NotImplementedError} from "../models/errors";
 import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME} from "../models/utils";
-import {Clause} from "./declaration";
+import {Clause, EnvMutator, isDeclaration, mergeEnvMutators, parseDeclaration} from "./declaration";
 import {parameterlessConstructorPattern, parsePattern} from "./pattern";
 
-export const parseExpression = (node: Parser.SyntaxNode, env: Environment): SymbolicNode => {
+export const parseExpression = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): SymbolicNode => {
     switch (node.type) {
         case APP_EXPRESSION:
-            return new ApplicationNode(node.children.map((child) => parseExpression(child, env)))
+            return new ApplicationNode(node.children.map((child) => parseExpression(child, constructors, infixData)))
         case VAR_EXPRESSION:
             return new IdentifierNode(node.text)
         case OP_EXPRESSION:
@@ -54,32 +56,30 @@ export const parseExpression = (node: Parser.SyntaxNode, env: Environment): Symb
         case RECORD_UNIT_EXPRESSION:
         case TUPLE_UNIT_EXPRESSION:
         case TUPLE_EXPRESSION:
-            const subExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, env))
+            const subExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
             return new ConstructorNode(subExpressions, getTupleConstructorName(subExpressions.length))
         case SEQUENCE_EXPRESSION:
-            const seqExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, env))
-            if (seqExpressions.length === 1)
-                return seqExpressions[0]
-            throw new NotImplementedError("Sequence expressions not implemented")
+            const seqExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
+            return createSequenceExpression(seqExpressions)
         case LIST_EXPRESSION:
-            const listExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, env))
+            const listExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
             return listExpressions.reduceRight(
                 (acc, expr) => new ConstructorNode(
                     [new ConstructorNode([expr, acc], getTupleConstructorName(2))],
                     LIST_CONSTRUCTOR_NAME),
                 new ConstructorNode([], LIST_NIL_NAME))
         case CONSTRAINT_EXPRESSION:
-            return parseExpression(node.firstChild, env)
+            return parseExpression(node.firstChild, constructors, infixData)
         case FN_EXPRESSION:
-            return parseMatch(node.lastChild, env)
+            return parseMatch(node.lastChild, constructors, infixData)
         case CASE_EXPRESSION:
-            return new ApplicationNode([parseMatch(node.lastChild, env), parseExpression(node.children[1], env)])
+            return new ApplicationNode([parseMatch(node.lastChild, constructors, infixData), parseExpression(node.children[1], constructors, infixData)])
         case ANDALSO_EXPRESSION:
-            return new AndNode(parseExpression(node.firstChild, env), parseExpression(node.lastChild, env))
+            return new AndNode(parseExpression(node.firstChild, constructors, infixData), parseExpression(node.lastChild, constructors, infixData))
         case ORELSE_EXPRESSION:
-            return new OrNode(parseExpression(node.firstChild, env), parseExpression(node.lastChild, env))
+            return new OrNode(parseExpression(node.firstChild, constructors, infixData), parseExpression(node.lastChild, constructors, infixData))
         case IF_EXPRESSION:
-            const [conditionExp, trueCaseExp, falseCaseExp] = node.children.filter(isExpression).map((child) => parseExpression(child, env))
+            const [conditionExp, trueCaseExp, falseCaseExp] = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
             return new ApplicationNode([
                 new FunctionNode([
                     {
@@ -94,27 +94,48 @@ export const parseExpression = (node: Parser.SyntaxNode, env: Environment): Symb
                 conditionExp
             ])
         case RAISE_EXPRESSION:
-            return new ExceptionNode(parseExpression(node.lastChild, env))
+            return new ExceptionNode(parseExpression(node.lastChild, constructors, infixData))
         case HANDLE_EXPRESSION:
-            return new HandleNode(parseExpression(node.firstChild, env), parseMatch(node.lastChild, env))
+            return new HandleNode(parseExpression(node.firstChild, constructors, infixData), parseMatch(node.lastChild, constructors, infixData))
         case SELECTOR_EXPRESSION:
             const index = parseInt(node.lastChild.text)
             return new SelectorNode(index - 1)
+        case LET_EXPRESSION:
+            let subEnv: Environment = {bindings: new Map(), constructors, infixData}
+            const declarations = node.children.filter(isDeclaration)
+            const envMutators: EnvMutator[] = []
+            for (const declaration of declarations) {
+                const envMutator = parseDeclaration(declaration, subEnv.constructors, subEnv.infixData)
+                if (envMutator.bindless) {
+                    subEnv = envMutator.base(subEnv)
+                } else {
+                    envMutators.push(envMutator)
+                }
+            }
+            const envMutator = mergeEnvMutators(envMutators)
+            const expression = createSequenceExpression(node.children.filter(isExpression).map((child) => parseExpression(child, subEnv.constructors, subEnv.infixData)))
+            return new LetNode(envMutator, expression)
         default:
             throw new NotImplementedError("Expression not implemented: " + node.type + " || " + node.text)
     }
 }
 
-const parseMatch = (node: Parser.SyntaxNode, env: Environment): ApplicableNode & SymbolicNode => {
-    const clauses = node.children.filter((child) => child.type === RULE).map((child) => parseRule(child, env))
+const createSequenceExpression = (expressions: SymbolicNode[]): SymbolicNode => {
+    if (expressions.length === 1)
+        return expressions[0]
+    throw new NotImplementedError("Sequence expressions not implemented")
+}
+
+const parseMatch = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): ApplicableNode & SymbolicNode => {
+    const clauses = node.children.filter((child) => child.type === RULE).map((child) => parseRule(child, constructors, infixData))
     // closure will be filled in evaluation
-    return new FunctionNode(clauses, null)
+    return new FunctionNode(clauses)
 
 }
 
-const parseRule = (node: Parser.SyntaxNode, env: Environment): Clause => {
-    const pattern = parsePattern(node.firstChild, env)
-    const body = parseExpression(node.lastChild, env)
+const parseRule = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): Clause => {
+    const pattern = parsePattern(node.firstChild, constructors, infixData)
+    const body = parseExpression(node.lastChild, constructors, infixData)
     return {patterns: [pattern], body}
 }
 

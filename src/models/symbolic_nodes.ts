@@ -1,14 +1,13 @@
 import {PolymorphicType, TupleType, Type} from "./types";
-import {Pattern, tryMatch} from "../parsers/pattern";
+import {applySymPattern, Pattern, tryMatch} from "../parsers/pattern";
 import {Bindings, Constructors, Environment, getTupleConstructorName, InfixData} from "../parsers/program";
 import {BuiltinOperationError, UnexpectedError, VariableNotDefinedError} from "./errors";
-import {Clause} from "../parsers/declaration";
+import {Clause, EnvMutator} from "../parsers/declaration";
 import {CustomContext, String} from "./context";
 import {
     ApplicableSymBind,
     bindingsToSym,
     Constructor,
-    mergeSymBindingsInto,
     product,
     Summary,
     SymBind,
@@ -542,7 +541,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         )
     }
 
-    constructor(clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null) {
+    constructor(clauses: Clause[], closure: Environment = null, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null) {
         super();
         this.clauses = clauses
         this.closure = closure
@@ -672,28 +671,11 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         return clauseBindings
     }
 
-    private applySymPattern<T extends string>(pattern: Pattern, arg: Summary<T>, combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
-        const patternBindings: SymBindings<T> = new Map()
-        let patternPath: Bool<T> = null
-        for (let {path, value} of arg) {
-            const patternResult = tryMatch(() => pattern(value, context))
-            if (patternResult === null) continue
-            const argPath = (patternResult.condition === null) ? path : context.AndBool(path, patternResult.condition)
-            if (patternPath === null) {
-                patternPath = argPath
-            } else {
-                patternPath = context.OrBool(patternPath, argPath)
-            }
-            mergeSymBindingsInto(patternBindings, bindingsToSym(patternResult.bindings, context.AndBool(combinedPath, argPath)))
-        }
-        return [patternBindings, patternPath]
-    }
-
     private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
         let clauseBindings: SymBindings<T> = new Map()
         let clausePath: Bool<T> = context.Bool.val(true)
         for (const [pattern, argSummary] of zip(clause.patterns, args)) {
-            const [patternBindings, patternPath] = this.applySymPattern(pattern, argSummary, context.AndBool(combinedPath, clausePath), context)
+            const [patternBindings, patternPath] = applySymPattern(pattern, argSummary, context.AndBool(combinedPath, clausePath), context)
             if (patternPath === null) return null
             clauseBindings = new Map([...clauseBindings, ...patternBindings])
             clausePath = context.AndBool(clausePath, patternPath)
@@ -724,14 +706,14 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
     readonly deepLimit: number;
     name: string
 
-    constructor(name: string, clauses: Clause[], closure: Environment, args: (SymbolicNode | Summary<any>)[] = [], deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
-        super(clauses, closure, args)
+    constructor(name: string, clauses: Clause[], closure: Environment = null, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null, deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
+        super(clauses, closure, args, symBinds)
         this.name = name
         this.deepLimit = deepLimit
     }
 
-    protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
-        return new RecursiveFunctionNode(this.name, this.clauses, this.closure, newArgs, this.deepLimit)
+    evaluate(env: Environment): RecursiveFunctionNode {
+        return new RecursiveFunctionNode(this.name, this.clauses, env, this.args, this.symBinds, this.deepLimit)
     }
 
     protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
@@ -739,11 +721,34 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
         return super.preSymbolicApplyHook(path)
     }
 
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): [{
+        path: Bool<T>,
+        value: RecursiveFunctionNode
+    }] {
+        return [{
+            path,
+            value: new RecursiveFunctionNode(
+                this.name,
+                this.clauses,
+                {
+                    bindings: null,
+                    constructors: env.constructors,
+                    infixData: env.infixData
+                },
+                this.args,
+                env.bindings)
+        }]
+    }
+
+    protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
+        return new RecursiveFunctionNode(this.name, this.clauses, this.closure, newArgs, this.symBinds, this.deepLimit)
+    }
+
     protected preSymbolicExecuteHook<T extends string>(env: SymEnvironment<T>, path: Bool<T>, successfulClauses: number) {
         if (successfulClauses === 1) return
         env.bindings.set(this.name, [{
             path,
-            value: new RecursiveFunctionNode(this.name, this.clauses, this.closure, [], this.deepLimit - 1)
+            value: new RecursiveFunctionNode(this.name, this.clauses, this.closure, [], this.symBinds, this.deepLimit - 1)
         }])
     }
 
@@ -1467,4 +1472,39 @@ export class SelectorNode extends BuiltInFunctionNode {
     toSMLString(infixData: InfixData): string {
         return `#${this.index}`
     }
+}
+
+export class LetNode extends SymbolicNode {
+    readonly envMutator: EnvMutator
+    readonly exp: SymbolicNode
+
+    constructor(envMutator: EnvMutator, exp: SymbolicNode) {
+        super();
+        this.envMutator = envMutator
+        this.exp = exp
+    }
+
+
+    eqZ3To<T extends string>(other: SymbolicNode, context: CustomContext<T>): Bool<T> {
+        throw new UnexpectedError();
+    }
+
+    concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
+        return new LetNode(this.envMutator, this.exp.concretize(model, context))
+    }
+
+    evaluate(env: Environment): SymbolicNode {
+        const updatedEnv = this.envMutator.base(env)
+        return this.exp.evaluate(updatedEnv)
+    }
+
+    summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
+        const updatedEnv = this.envMutator.symbolic(context, env, path)
+        return this.exp.summarize(context, updatedEnv, path)
+    }
+
+    toSMLString(infixData: InfixData): string {
+        throw new UnexpectedError()
+    }
+
 }

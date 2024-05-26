@@ -119,7 +119,6 @@ export const TUPLE_EXPRESSION = "tuple_exp";
 export const LIST_EXPRESSION = "list_exp";
 // TODO implement
 export const VECTOR_EXPRESSION = "vector_exp";
-// TODO implement
 export const LET_EXPRESSION = "let_exp";
 
 export const EXPRESSIONS = [
