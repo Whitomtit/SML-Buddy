@@ -1,5 +1,5 @@
 import Heap from "heap-js";
-import {CompoundType, PolymorphicType, PrimitiveType, Type} from "./models/types";
+import {PolymorphicType, PrimitiveType, Type} from "./models/types";
 import {HoleNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
 import {parseProgram} from "./parsers/program";
 import {promises as fs} from "fs";
@@ -9,14 +9,14 @@ import {createCustomContext} from "./models/context";
 import {SymbolicExecutor} from "./engine/symbolicExecutor";
 
 const main = async () => {
-    const targetType = new CompoundType(PrimitiveType.STRING, new PrimitiveType("list"))
-    const targetFun = "test"
+    const targetType = new PrimitiveType("btree")
+    const targetFun = "mirror"
 
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
 
-    const referenceInput = await fs.readFile("test/reference.in", "utf-8")
-    const buggyInput = await fs.readFile("test/buggy.in", "utf-8")
+    const referenceInput = await fs.readFile("benchmarks/mirror/sol.sml", "utf-8")
+    const buggyInput = await fs.readFile("benchmarks/mirror/sub29.sml", "utf-8")
 
     printSection("PARSING")
     const referenceEnv = parseProgram(referenceInput)

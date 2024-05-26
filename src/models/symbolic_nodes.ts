@@ -16,7 +16,7 @@ import {
     SymEnvironment,
     zip
 } from "./utils";
-import {Bool, Expr, IntNum, Model} from "z3-solver";
+import {Bool, Expr, Model} from "z3-solver";
 
 export abstract class SymbolicNode {
     size(): number {
@@ -441,7 +441,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
         if (other instanceof ConstructorNode) {
             return context.Bool.val(false)
         }
-        super.eqZ3To(other, context)
+        return super.eqZ3To(other, context)
     }
 
     eqTo<T extends string>(other: SymbolicNode, context?: CustomContext<T>): boolean | Bool<T> {
@@ -1186,8 +1186,14 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
     }
 
     concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
-        const value = model.get(this.valueSupplier(context)) as IntNum<T>
-        return new IntegerNode(parseInt(value.asString()))
+        const nodeValue = this.valueSupplier(context)
+        const value = model.eval(nodeValue).toString()
+
+        if (value === nodeValue.toString()) {
+            // the variable doesn't appear in the model, thus its value is arbitrary
+            return new IntegerNode(0)
+        }
+        return new IntegerNode(parseInt(value))
     }
 
     toSMLString(infixData: InfixData): string {
