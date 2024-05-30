@@ -14,6 +14,7 @@ import {
 } from "../models/symbolic_nodes";
 import Parser from "tree-sitter";
 import {
+    ACCESS_EXPRESSION,
     ANDALSO_EXPRESSION,
     APP_EXPRESSION,
     CASE_EXPRESSION,
@@ -25,6 +26,7 @@ import {
     IF_EXPRESSION,
     LET_EXPRESSION,
     LIST_EXPRESSION,
+    OP,
     OP_EXPRESSION,
     ORELSE_EXPRESSION,
     RAISE_EXPRESSION,
@@ -51,6 +53,12 @@ export const parseExpression = (node: Parser.SyntaxNode, constructors: Construct
             return new IdentifierNode(node.text)
         case OP_EXPRESSION:
             return new IdentifierNode(node.lastChild.text, true)
+        case ACCESS_EXPRESSION:
+            if (node.firstChild.type === OP) {
+                return new IdentifierNode(node.text.slice(2), true)
+            } else {
+                return new IdentifierNode(node.text)
+            }
         case CONSTANT_EXPRESSION:
             return parseConstant(node.firstChild)
         case RECORD_UNIT_EXPRESSION:

@@ -16,7 +16,7 @@ const main = async () => {
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
 
     const referenceInput = await fs.readFile("benchmarks/mirror/sol.sml", "utf-8")
-    const buggyInput = await fs.readFile("benchmarks/mirror/sub31.sml", "utf-8")
+    const buggyInput = await fs.readFile("benchmarks/mirror/sub11.sml", "utf-8")
 
     printSection("PARSING")
     const referenceEnv = parseProgram(referenceInput)

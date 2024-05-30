@@ -106,7 +106,6 @@ export const RAISE_EXPRESSION = "raise_exp";
 
 export const VAR_EXPRESSION = "var_exp";
 export const OP_EXPRESSION = "op_exp";
-// TODO implement
 export const ACCESS_EXPRESSION = "access_exp";
 export const CONSTANT_EXPRESSION = "constant_exp";
 export const SELECTOR_EXPRESSION = "selector_exp";
