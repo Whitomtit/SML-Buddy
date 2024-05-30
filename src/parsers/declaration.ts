@@ -1,4 +1,4 @@
-import Parser from "tree-sitter";
+import Parser from "web-tree-sitter";
 import {
     CLAUSE,
     DATATYPE_DECLARATION,
@@ -114,13 +114,13 @@ const parseFunctionBind = (node: Parser.SyntaxNode, constructors: Constructors, 
     // drop function name
     const namePattern = clauses[0].patterns[0]
     clauses.forEach((clause) => clause.patterns.shift())
-    const functionTemplateNode = new RecursiveFunctionNode(null, clauses)
+    const functionTemplateNode = new RecursiveFunctionNode("__temp__", clauses)
     const name = namePattern(functionTemplateNode).bindings.keys().next().value as string
     functionTemplateNode.name = name
     return {
         base: (env: Environment) => {
             const functionNode = functionTemplateNode.evaluate(env)
-            functionNode.closure.bindings.set(name, functionNode)
+            functionNode.closure!.bindings.set(name, functionNode)
             return {
                 ...env,
                 bindings: new Map([...env.bindings, [name, functionNode]])
@@ -129,7 +129,7 @@ const parseFunctionBind = (node: Parser.SyntaxNode, constructors: Constructors, 
         symbolic: <T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>) => {
             const funcBind = functionTemplateNode.summarize(context, env, path)[0]
             const newBindings = new Map(env.bindings)
-            funcBind.value.symBinds.set(name, [funcBind])
+            funcBind.value.symBinds!.set(name, [funcBind])
             newBindings.set(name, [funcBind])
             return {
                 ...env,
@@ -146,8 +146,8 @@ export const parseValueDeclaration = (node: Parser.SyntaxNode, constructors: Con
 }
 
 const parseValueBind = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): EnvMutator => {
-    const pattern = parsePattern(node.firstChild, constructors, infixData)
-    const exp = parseExpression(node.lastChild, constructors, infixData)
+    const pattern = parsePattern(node.firstChild!, constructors, infixData)
+    const exp = parseExpression(node.lastChild!, constructors, infixData)
     return {
         base: (env: Environment) => ({
             ...env,
@@ -165,7 +165,7 @@ const parseValueBind = (node: Parser.SyntaxNode, constructors: Constructors, inf
 }
 
 export const parseInfixDeclaration = (node: Parser.SyntaxNode): InfixData => {
-    const infixType = parseInfixType(node.firstChild)
+    const infixType = parseInfixType(node.firstChild!)
     let firstIdChild = 1
     let precedence = -1
     if (node.children[1].type === INT_CONSTANT) {
@@ -205,17 +205,17 @@ export const parseException = (node: Parser.SyntaxNode, constructors: Constructo
 }
 
 const parseExceptionBind = (node: Parser.SyntaxNode, constructors: Constructors): [string, FunctionType] => {
-    let child = node.firstChild
+    let child = node.firstChild!
     if (child.type === OP) {
-        child = child.nextSibling
+        child = child.nextSibling!
     }
     const constructorName = child.text
 
     let argType: Type = new TupleType([])
-    if (node.lastChild.type === PARAMETRIC_EXCEPTION) {
-        argType = parseType(node.lastChild.lastChild, new Map())
-    } else if (node.lastChild.type === REDEFINED_EXCEPTION) {
-        argType = constructors.get(node.lastChild.lastChild.text)
+    if (node.lastChild!.type === PARAMETRIC_EXCEPTION) {
+        argType = parseType(node.lastChild!.lastChild!, new Map())
+    } else if (node.lastChild!.type === REDEFINED_EXCEPTION) {
+        argType = constructors.get(node.lastChild!.lastChild!.text)!
     }
     return [constructorName, new FunctionType(argType, PrimitiveType.EXCEPTION)]
 }
@@ -226,7 +226,7 @@ export type Clause = {
 }
 const parseClause = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): Clause => {
     const patterns = node.children.filter(isPattern).map((child) => parsePattern(child, constructors, infixData))
-    const body = parseExpression(node.lastChild, constructors, infixData)
+    const body = parseExpression(node.lastChild!, constructors, infixData)
     return {patterns, body}
 }
 

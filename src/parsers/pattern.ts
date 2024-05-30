@@ -1,4 +1,4 @@
-import Parser from "tree-sitter";
+import Parser from "web-tree-sitter";
 import {Bindings, Constructors, getTupleConstructorName, InfixData} from "./program";
 import {
     BooleanSymbolNode,
@@ -39,7 +39,7 @@ import {
 
 type PatternResult<T extends string> = {
     bindings: Bindings
-    condition: Bool<T>
+    condition: Bool<T> | null
 }
 export type Pattern = <T extends string>(node: SymbolicNode, context?: CustomContext<T>) => PatternResult<T>
 
@@ -51,7 +51,7 @@ export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors
             return parsePattern(node.children[1], constructors, infixData)
         case VARIABLE_PATTERN:
         case OP_PATTERN:
-            const name = node.lastChild.text
+            const name = node.lastChild!.text
             const constructor = constructors.get(name)
             // zero parameter constructor
             if (constructor) {
@@ -77,7 +77,7 @@ export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors
                         if (result.condition === null) {
                             result.condition = condition
                         } else {
-                            result.condition = context.AndBool(result.condition, (condition))
+                            result.condition = context!.AndBool(result.condition, (condition))
                         }
                     }
                 }
@@ -97,7 +97,7 @@ export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors
                 throw new PatternMatchError()
             }
         case CONSTANT_PATTERN:
-            const constant = parseConstant(node.firstChild)
+            const constant = parseConstant(node.firstChild!)
             if (constant instanceof IntegerNode) {
                 return <T extends string>(node: SymbolicNode, context?: CustomContext<T>): PatternResult<T> => {
                     if (node instanceof IntegerNode && node.value === constant.value) {
@@ -110,7 +110,7 @@ export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors
 
                         return {
                             bindings: new Map<string, SymbolicNode>(),
-                            condition: node.getZ3Value(context).eq(constant.value)
+                            condition: node.getZ3Value(context!).eq(constant.value)
                         }
                     }
                     throw new PatternMatchError()
@@ -126,7 +126,7 @@ export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors
                     if (node instanceof StringSymbolNode) {
                         return {
                             bindings: new Map<string, SymbolicNode>(),
-                            condition: node.getZ3Value(context).eq(context.String.val(constant.value))
+                            condition: node.getZ3Value(context!).eq(context!.String.val(constant.value))
                         }
                     }
                     throw new PatternMatchError()
@@ -141,7 +141,7 @@ export const parsePattern = (node: Parser.SyntaxNode, constructors: Constructors
                 parameterlessConstructorPattern(LIST_NIL_NAME)
             )
         case CONSTRAIN_PATTERN:
-            return parsePattern(node.firstChild, constructors, infixData)
+            return parsePattern(node.firstChild!, constructors, infixData)
         case WILD_PATTERN:
             return <T extends string>(): PatternResult<T> => ({
                 bindings: new Map<string, SymbolicNode>(),
@@ -187,9 +187,9 @@ const infixConstructorPattern = (constructorName: string, leftPattern: Pattern, 
         const left = leftPattern(tuple.args[0], context)
         const right = rightPattern(tuple.args[1], context)
 
-        let condition: Bool<T> = null
+        let condition: Bool<T> | null = null
         if (left.condition !== null && right.condition !== null) {
-            condition = context.AndBool(left.condition, (right.condition))
+            condition = context!.AndBool(left.condition, (right.condition))
         } else if (left.condition !== null) {
             condition = left.condition
         } else if (right.condition !== null) {
@@ -206,7 +206,7 @@ export const parameterlessConstructorPattern = (constructorName: string): Patter
         if (node instanceof BooleanSymbolNode) {
             return {
                 bindings: new Map<string, SymbolicNode>(),
-                condition: node.eqZ3To(new ConstructorNode([], constructorName), context)
+                condition: node.eqZ3To(new ConstructorNode([], constructorName), context!)
             }
         }
         if (!(node instanceof ConstructorNode) || node.name !== constructorName) {
@@ -256,9 +256,9 @@ export const tryMatch = <T extends string>(f: () => PatternResult<T>): PatternRe
     }
 }
 
-export const applySymPattern = <T extends string>(pattern: Pattern, arg: Summary<T>, combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] => {
+export const applySymPattern = <T extends string>(pattern: Pattern, arg: Summary<T>, combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T> | null] => {
     const patternBindings: SymBindings<T> = new Map()
-    let patternPath: Bool<T> = null
+    let patternPath: Bool<T> | null = null
     for (let {path, value} of arg) {
         const patternResult = tryMatch(() => pattern(value, context))
         if (patternResult === null) continue

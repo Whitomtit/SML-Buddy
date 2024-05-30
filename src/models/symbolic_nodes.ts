@@ -68,7 +68,7 @@ export interface ApplicableNode {
 }
 
 export interface ValuableNode<T> {
-    readonly value
+    readonly value: T
 }
 
 export interface SymValuableNode {
@@ -107,7 +107,7 @@ export class IntegerNode extends SymbolicNode implements ValuableNode<number> {
             return this.value === other.value
         }
         if (other instanceof IntegerSymbolNode) {
-            return this.eqZ3To(other, context)
+            return this.eqZ3To(other, context!)
         }
         return super.eqTo(other, context)
     }
@@ -161,7 +161,7 @@ export class StringNode extends SymbolicNode implements ValuableNode<string> {
             return this.value === other.value
         }
         if (other instanceof StringSymbolNode) {
-            return this.eqZ3To(other, context)
+            return this.eqZ3To(other, context!)
         }
         return super.eqTo(other, context)
     }
@@ -215,7 +215,7 @@ export class IdentifierNode extends SymbolicNode {
         return this.name
     }
 
-    private evaluateConstructor(constructors: Constructors): SymbolicNode {
+    private evaluateConstructor(constructors: Constructors): SymbolicNode | null {
         const constructor = constructors.get(this.name)
 
         if (!constructor) {
@@ -261,7 +261,7 @@ export class ApplicationNode extends SymbolicNode {
     readonly nodes: SymbolicNode[];
 
     static isInfix<T>(node: (SymbolicNode | T), infixData: InfixData): boolean {
-        return node instanceof IdentifierNode && !node.opped && infixData.has(node.name) && infixData.get(node.name).infix !== "NonInfix"
+        return node instanceof IdentifierNode && !node.opped && infixData.has(node.name) && infixData.get(node.name)!.infix !== "NonInfix"
     }
 
     size(): number {
@@ -283,8 +283,8 @@ export class ApplicationNode extends SymbolicNode {
     }
 
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
-        const applyFunction = (func, arg): Summary<T> =>
-            func.reduce((acc: Summary<T>, funcSymBind): Summary<T> =>
+        const applyFunction = (func: Summary<T>, arg: Summary<T>): Summary<T> =>
+            func.reduce((acc: Summary<T>, funcSymBind: SymBind<T>): Summary<T> =>
                 acc.concat((<ApplicableNode><unknown>funcSymBind.value).symbolicApply(context, arg, funcSymBind.path)), [])
         const applyInfix = (left: Summary<T>, infix: Summary<T>, right: Summary<T>): Summary<T> =>
             applyFunction(infix, product([left, right]).map(([l, r]) => ({
@@ -316,14 +316,14 @@ export class ApplicationNode extends SymbolicNode {
 
         // always have at least one node in input stack for lookahead
         while (inputStack.length !== 0) {
-            const node = inputStack.pop()
+            const node = inputStack.pop()!
             const lookahead = inputStack[inputStack.length - 1]
 
             // push infix to work stack if no reduce
             if (ApplicationNode.isInfix(node, infixData)) {
                 if (workStack.length >= 3) {
-                    const leftInfix = infixData.get((<IdentifierNode>workStack[workStack.length - 2]).name)
-                    const rightInfix = infixData.get((<IdentifierNode>node).name)
+                    const leftInfix = infixData.get((<IdentifierNode>workStack[workStack.length - 2]).name)!
+                    const rightInfix = infixData.get((<IdentifierNode>node).name)!
 
                     if (leftInfix.precedence > rightInfix.precedence ||
                         (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
@@ -359,8 +359,8 @@ export class ApplicationNode extends SymbolicNode {
                 continue
             }
             // both lookahead and work top are infix, thus compare precedence
-            const leftInfix = infixData.get((<IdentifierNode>workTop).name)
-            const rightInfix = infixData.get((<IdentifierNode>lookahead).name)
+            const leftInfix = infixData.get((<IdentifierNode>workTop).name)!
+            const rightInfix = infixData.get((<IdentifierNode>lookahead).name)!
 
             if (leftInfix.precedence > rightInfix.precedence ||
                 (leftInfix.precedence === rightInfix.precedence && leftInfix.infix === "Left")) {
@@ -466,14 +466,14 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
                     continue
                 }
                 if (typeof result === "boolean") {
-                    result = context.Bool.val(result as boolean)
+                    result = context!.Bool.val(result as boolean)
                 }
-                result = context.AndBool(subEquality, result)
+                result = context!.AndBool(subEquality, result)
             }
             return result
         }
         if (other instanceof BooleanSymbolNode) {
-            return this.eqZ3To(this, context)
+            return this.eqZ3To(this, context!)
         }
         if (other instanceof ConstructorNode) {
             return false
@@ -505,7 +505,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
 
     toSMLString(infixData: InfixData): string {
         if (this.args.length === 0) return this.name
-        if (infixData.has(this.name) && infixData.get(this.name).infix !== "NonInfix") {
+        if (infixData.has(this.name) && infixData.get(this.name)!.infix !== "NonInfix") {
             const subTuple = this.args[0] as ConstructorNode
             return `(${subTuple.args[0].toSMLString(infixData)} ${this.name} ${subTuple.args[1].toSMLString(infixData)})`
         }
@@ -528,25 +528,25 @@ export class BooleanNode extends ConstructorNode {
 
 export class FunctionNode extends SymbolicNode implements ApplicableNode {
     readonly clauses: Clause[];
-    readonly closure: Environment;
-    readonly symBinds: SymBindings<any>;
+    readonly closure?: Environment;
+    readonly symBinds?: SymBindings<any>;
     readonly args: (SymbolicNode | Summary<any>)[];
+
+    constructor(clauses: Clause[], closure?: Environment, args: (SymbolicNode | Summary<any>)[] = [], symBinds?: SymBindings<any>) {
+        super();
+        this.clauses = clauses
+        this.closure = closure
+        this.args = args
+        this.symBinds = symBinds
+    }
 
     static generatedFunction(pattern: Pattern, body: SymbolicNode): FunctionNode {
         return new FunctionNode(
             [{
                 patterns: [pattern],
                 body
-            }], null
+            }]
         )
-    }
-
-    constructor(clauses: Clause[], closure: Environment = null, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null) {
-        super();
-        this.clauses = clauses
-        this.closure = closure
-        this.args = args
-        this.symBinds = symBinds
     }
 
     size(): number {
@@ -565,9 +565,9 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                 const clauseResult = this.applyClause(clause, newArgs)
                 if (clauseResult === null) continue
                 const env: Environment = {
-                    bindings: new Map([...this.closure.bindings, ...clauseResult]),
-                    constructors: this.closure.constructors,
-                    infixData: this.closure.infixData
+                    bindings: new Map([...this.closure!.bindings, ...clauseResult]),
+                    constructors: this.closure!.constructors,
+                    infixData: this.closure!.infixData
                 }
                 return clause.body.evaluate(env)
             }
@@ -583,7 +583,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
 
         const newArgs = [...this.args, argument] as Summary<T>[]
         if (this.clauses[0].patterns.length === 1 + this.args.length) {
-            const closureBinds = (this.symBinds === null) ? bindingsToSym(this.closure.bindings, context.Bool.val(true)) : this.symBinds
+            const closureBinds = (this.symBinds === undefined) ? bindingsToSym(this.closure!.bindings, context.Bool.val(true)) : this.symBinds
             let combinedPath = path
             let successfulClauses: [Clause, SymEnvironment<T>, Bool<T>][] = []
             for (const clause of this.clauses) {
@@ -591,9 +591,9 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
                 if (clauseResult === null) continue
                 const [matchBindings, matchPath] = clauseResult
                 const env: SymEnvironment<T> = {
-                    bindings: new Map([...closureBinds, ...matchBindings]),
-                    constructors: this.closure.constructors,
-                    infixData: this.closure.infixData
+                    bindings: new Map([...closureBinds!, ...matchBindings]),
+                    constructors: this.closure!.constructors,
+                    infixData: this.closure!.infixData
                 }
                 const callPath = context.AndBool(combinedPath, matchPath)
                 successfulClauses.push([clause, env, callPath])
@@ -638,7 +638,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
             value: new FunctionNode(
                 this.clauses,
                 {
-                    bindings: null,
+                    bindings: new Map<string, SymbolicNode>(),
                     constructors: env.constructors,
                     infixData: env.infixData
                 },
@@ -647,7 +647,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         }]
     }
 
-    protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
+    protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> | null {
         return null
     }
 
@@ -660,7 +660,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
     }
 
     // null stands for failed match
-    private applyClause(clause: Clause, args: SymbolicNode[]): Bindings {
+    private applyClause(clause: Clause, args: SymbolicNode[]): Bindings | null {
         let clauseBindings: Bindings = new Map()
         for (const [pattern, arg] of zip(clause.patterns, args)) {
             const patternResult = tryMatch(() => pattern(arg))
@@ -671,7 +671,7 @@ export class FunctionNode extends SymbolicNode implements ApplicableNode {
         return clauseBindings
     }
 
-    private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] {
+    private applySymClause<T extends string>(clause: Clause, args: Summary<T>[], combinedPath: Bool<T>, context: CustomContext<T>): [SymBindings<T>, Bool<T>] | null {
         let clauseBindings: SymBindings<T> = new Map()
         let clausePath: Bool<T> = context.Bool.val(true)
         for (const [pattern, argSummary] of zip(clause.patterns, args)) {
@@ -706,7 +706,7 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
     readonly deepLimit: number;
     name: string
 
-    constructor(name: string, clauses: Clause[], closure: Environment = null, args: (SymbolicNode | Summary<any>)[] = [], symBinds: SymBindings<any> = null, deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
+    constructor(name: string, clauses: Clause[], closure?: Environment, args: (SymbolicNode | Summary<any>)[] = [], symBinds?: SymBindings<any>, deepLimit: number = RecursiveFunctionNode.INITIAL_DEEP_LIMIT) {
         super(clauses, closure, args, symBinds)
         this.name = name
         this.deepLimit = deepLimit
@@ -714,11 +714,6 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
 
     evaluate(env: Environment): RecursiveFunctionNode {
         return new RecursiveFunctionNode(this.name, this.clauses, env, this.args, this.symBinds, this.deepLimit)
-    }
-
-    protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> {
-        if (this.deepLimit === 0) return [{path, value: BottomNode.deepLimitException()}]
-        return super.preSymbolicApplyHook(path)
     }
 
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): [{
@@ -731,13 +726,20 @@ export class RecursiveFunctionNode extends FunctionNode implements ApplicableNod
                 this.name,
                 this.clauses,
                 {
-                    bindings: null,
+                    bindings: new Map<string, SymbolicNode>(),
                     constructors: env.constructors,
                     infixData: env.infixData
                 },
                 this.args,
                 env.bindings)
         }]
+    }
+
+    protected preSymbolicApplyHook<T extends string>(path: Bool<T>): Summary<T> | null {
+        if (this.deepLimit === 0) {
+            return [{path, value: BottomNode.deepLimitException()}]
+        }
+        return super.preSymbolicApplyHook(path)
     }
 
     protected recreate(newArgs: (SymbolicNode | Summary<any>)[]): FunctionNode {
@@ -861,7 +863,7 @@ export class BuiltInBinopNode<
 
                 return acc.concat({
                     path: nodePath,
-                    value: new outSymNodeConstructor((_) => symFunc(aExpr, bExpr))
+                    value: new outSymNodeConstructor((_: CustomContext<T>) => symFunc(aExpr, bExpr))
                 })
             }, [])
         })
@@ -1179,7 +1181,7 @@ export class IntegerSymbolNode extends SymbolicNode implements SymValuableNode {
         if (other instanceof BottomNode) {
             return false
         }
-        return this.eqZ3To(other, context)
+        return this.eqZ3To(other, context!)
     }
 
     getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
@@ -1238,7 +1240,7 @@ export class StringSymbolNode extends SymbolicNode implements SymValuableNode {
         if (other instanceof BottomNode) {
             return false
         }
-        return this.eqZ3To(other, context)
+        return this.eqZ3To(other, context!)
     }
 
     getZ3Value<T extends string>(context: CustomContext<T>): Expr<T> {
@@ -1278,7 +1280,7 @@ export class BooleanSymbolNode extends SymbolicNode implements SymValuableNode {
         if (other instanceof BottomNode) {
             return false
         }
-        return this.eqZ3To(other, context)
+        return this.eqZ3To(other, context!)
     }
 
     evaluate(env: Environment): SymbolicNode {
@@ -1413,7 +1415,7 @@ export class HandleNode extends SymbolicNode {
             ({path, value}) => ({path, value: (value as BottomNode).exceptionNode})
         )
         const successfulValues = evalResult.filter(({value}) => !(value instanceof BottomNode))
-        const onHandleFail = (matchPath) => bottomValues.map(({path, value}) => ({
+        const onHandleFail = (matchPath: Bool<T>) => bottomValues.map(({path, value}) => ({
             path: context.AndBool(matchPath, path),
             value
         }))

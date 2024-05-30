@@ -1,4 +1,4 @@
-import Parser from "tree-sitter";
+import Parser from "web-tree-sitter";
 import {FunctionType, PolymorphicType, TupleType} from "../models/types";
 import {CONSTRUCTOR, DATATYPE_BIND, OP, POLYMORPHIC_TYPE, POLYMORPHIC_TYPE_SEQUENCE} from "./const";
 import {generateType, parseType} from "./type";
@@ -18,21 +18,21 @@ const parseDatatypeBind = (node: Parser.SyntaxNode): Constructors => {
 
     let child = node.firstChild
 
-    if (child.type === POLYMORPHIC_TYPE_SEQUENCE) {
-        parsePolymorphicTypeSequence(child, typeMap)
-        child = child.nextSibling
+    if (child!.type === POLYMORPHIC_TYPE_SEQUENCE) {
+        parsePolymorphicTypeSequence(child!, typeMap)
+        child = child!.nextSibling
     }
-    const typeName = child.text
+    const typeName = child!.text
     const type = generateType(typeName, Array.from(typeMap.values()))
 
     const constructorNodes = node.children.filter((child) => child.type === CONSTRUCTOR)
     constructorNodes.forEach((constructorNode) => {
         let child = constructorNode.firstChild
-        if (child.type === OP) {
-            child = child.nextSibling
+        if (child!.type === OP) {
+            child = child!.nextSibling
         }
-        const constructorName = child.text
-        const argType = child.nextSibling ? parseType(child.nextSibling.nextSibling, typeMap) : new TupleType([])
+        const constructorName = child!.text
+        const argType = child!.nextSibling ? parseType(child!.nextSibling.nextSibling!, typeMap) : new TupleType([])
         constructors.set(constructorName, new FunctionType(argType, type))
     })
 

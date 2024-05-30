@@ -133,7 +133,7 @@ export class PolymorphicType implements Type {
         if (!substitution.has(this)) {
             substitution.set(this, new PolymorphicType());
         }
-        return substitution.get(this);
+        return substitution.get(this)!;
     }
 
     toString() {

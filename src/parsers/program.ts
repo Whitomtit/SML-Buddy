@@ -1,6 +1,4 @@
-import Parser from "tree-sitter";
 import {isDeclaration, parseDeclaration} from "./declaration";
-import SML from "tree-sitter-sml";
 import {CompoundType, FunctionType, PolymorphicType, PrimitiveType, TupleType} from "../models/types";
 import {
     BooleanNode,
@@ -20,6 +18,7 @@ import {UnexpectedError} from "../models/errors";
 import {Arith, Bool, Expr} from "z3-solver";
 import {LIST_CONSTRUCTOR_NAME, LIST_NIL_NAME, Summary} from "../models/utils";
 import {CustomContext, String as Z3String} from "../models/context";
+import Parser from 'web-tree-sitter';
 
 export type InfixType = "Left" | "Right" | "NonInfix"
 export type Infix = {
@@ -41,13 +40,10 @@ const a = new PolymorphicType()
 
 export const list = new PrimitiveType("list")
 
-export const parseProgram = (program: string): Environment => {
-    const parser = new Parser();
-    parser.setLanguage(SML);
-
+export const parseProgram = (program: string, parser: SMLParser): Environment => {
     const parseTree = parser.parse(program)
 
-    const notFunction = (node): SymbolicNode => {
+    const notFunction = (node: SymbolicNode): SymbolicNode => {
         if (node instanceof BottomNode) {
             return node
         }
@@ -62,7 +58,7 @@ export const parseProgram = (program: string): Environment => {
 
         throw new UnexpectedError()
     }
-    const unaryMinusFunction = (node): SymbolicNode => {
+    const unaryMinusFunction = (node: SymbolicNode): SymbolicNode => {
         if (node instanceof BottomNode) {
             return node
         }
@@ -75,53 +71,53 @@ export const parseProgram = (program: string): Environment => {
         ["+", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
             (a, b) => a + b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).add((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, IntegerNode, IntegerSymbolNode)],
         ["-", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
             (a, b) => a - b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).sub((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, IntegerNode, IntegerSymbolNode)],
         ["*", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
             (a, b) => a * b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).mul((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, IntegerNode, IntegerSymbolNode)],
         ["div", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
             (a, b) => Math.floor(a / b),
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).div((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, IntegerNode, IntegerSymbolNode)],
         ["mod", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode>(
             (a, b) => a % b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).mod((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, IntegerNode, IntegerSymbolNode)],
         ["^", new BuiltInBinopNode<string, StringNode, StringSymbolNode>(
             (a, b) => a.concat(b),
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Z3String<T>).concat((b as Z3String<T>)),
-            <T extends string>(a, context) => context.String.val(a),
+            <T extends string>(a: string, context: CustomContext<T>) => context.String.val(a),
             StringNode, StringSymbolNode, StringNode, StringSymbolNode)],
         // TODO support string comparison
         [">", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode, boolean, ConstructorNode, BooleanSymbolNode>(
             (a, b) => a > b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).gt((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)],
         [">=", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode, boolean, ConstructorNode, BooleanSymbolNode>(
             (a, b) => a >= b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).ge((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)],
         ["<", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode, boolean, ConstructorNode, BooleanSymbolNode>(
             (a, b) => a < b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).lt((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)],
         ["<=", new BuiltInBinopNode<number, IntegerNode, IntegerSymbolNode, boolean, ConstructorNode, BooleanSymbolNode>(
             (a, b) => a <= b,
             <T extends string>(a: Expr<T>, b: Expr<T>) => (a as Arith<T>).le((b as Arith<T>)),
-            <T extends string>(a, context) => context.Int.val(a),
+            <T extends string>(a: number, context: CustomContext<T>) => context.Int.val(a),
             IntegerNode, IntegerSymbolNode, BooleanNode, BooleanSymbolNode)],
         ["=", new EqualityFunction(false)],
         ["<>", new EqualityFunction(true)],
@@ -197,5 +193,16 @@ export const getTupleConstructorName = (arity: number): string => {
         throw new UnexpectedError()
     }
     return `${arity}_tuple`
+}
 
+export interface SMLParser {
+    parse(input: string | Parser.Input, previousTree?: Parser.Tree): Parser.Tree;
+
+    getLanguage(): any;
+
+    setLanguage(language: any): void;
+
+    getLogger(): Parser.Logger;
+
+    setLogger(logFunc: Parser.Logger): void;
 }

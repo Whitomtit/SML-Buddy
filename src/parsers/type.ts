@@ -1,4 +1,4 @@
-import Parser from "tree-sitter";
+import Parser from "web-tree-sitter";
 import {
     CONSTRUCTOR_TYPE,
     FUNCTION_TYPE,
@@ -36,14 +36,14 @@ export const parseType = (node: Parser.SyntaxNode, typeMap: Map<string, Type>): 
         const returnType = parseType(node.children[2], typeMap)
         return new FunctionType(argType, returnType)
     } else if (node.type === POLYMORPHIC_TYPE || node.type === WRAPPED_POLYMORPHIC_TYPE) {
-        return typeMap.get(node.text)
+        return typeMap.get(node.text)!
     } else if (node.type === RECORD_TYPE) {
         throw new NotImplementedError("Record type not implemented")
     } else if (node.type === CONSTRUCTOR_TYPE) {
         const types = node.children
             .filter(isTypeNode)
             .map((child) => parseType(child, typeMap))
-        const typeName = node.lastChild.text
+        const typeName = node.lastChild!.text
         return generateType(typeName, types)
     } else if (node.type === PARENTHESIZED_TYPE) {
         return parseType(node.children[1], typeMap)

@@ -56,7 +56,7 @@ export const zip = <T, V>(a: T[], b: V[]): [T, V][] => a.map((k, i) => [k, b[i]]
 export const mergeSymBindingsInto = <T extends string>(a: SymBindings<T>, b: SymBindings<T>): void => {
     b.forEach((value, key) => {
         if (a.has(key)) {
-            a.set(key, [...a.get(key), ...value])
+            a.set(key, [...a.get(key)!, ...value])
         } else {
             a.set(key, value)
         }

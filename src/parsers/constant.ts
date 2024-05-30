@@ -1,4 +1,4 @@
-import Parser from "tree-sitter";
+import Parser from 'web-tree-sitter';
 import {IntegerNode, StringNode, SymbolicNode} from "../models/symbolic_nodes";
 import {INT_CONSTANT, STRING_CONSTANT} from "./const";
 import {NotImplementedError} from "../models/errors";

@@ -12,7 +12,7 @@ import {
     SelectorNode,
     SymbolicNode
 } from "../models/symbolic_nodes";
-import Parser from "tree-sitter";
+import Parser from "web-tree-sitter";
 import {
     ACCESS_EXPRESSION,
     ANDALSO_EXPRESSION,
@@ -52,15 +52,15 @@ export const parseExpression = (node: Parser.SyntaxNode, constructors: Construct
         case VAR_EXPRESSION:
             return new IdentifierNode(node.text)
         case OP_EXPRESSION:
-            return new IdentifierNode(node.lastChild.text, true)
+            return new IdentifierNode(node.lastChild!.text, true)
         case ACCESS_EXPRESSION:
-            if (node.firstChild.type === OP) {
+            if (node.firstChild!.type === OP) {
                 return new IdentifierNode(node.text.slice(2), true)
             } else {
                 return new IdentifierNode(node.text)
             }
         case CONSTANT_EXPRESSION:
-            return parseConstant(node.firstChild)
+            return parseConstant(node.firstChild!)
         case RECORD_UNIT_EXPRESSION:
         case TUPLE_UNIT_EXPRESSION:
         case TUPLE_EXPRESSION:
@@ -77,15 +77,15 @@ export const parseExpression = (node: Parser.SyntaxNode, constructors: Construct
                     LIST_CONSTRUCTOR_NAME),
                 new ConstructorNode([], LIST_NIL_NAME))
         case CONSTRAINT_EXPRESSION:
-            return parseExpression(node.firstChild, constructors, infixData)
+            return parseExpression(node.firstChild!, constructors, infixData)
         case FN_EXPRESSION:
-            return parseMatch(node.lastChild, constructors, infixData)
+            return parseMatch(node.lastChild!, constructors, infixData)
         case CASE_EXPRESSION:
-            return new ApplicationNode([parseMatch(node.lastChild, constructors, infixData), parseExpression(node.children[1], constructors, infixData)])
+            return new ApplicationNode([parseMatch(node.lastChild!, constructors, infixData), parseExpression(node.children[1], constructors, infixData)])
         case ANDALSO_EXPRESSION:
-            return new AndNode(parseExpression(node.firstChild, constructors, infixData), parseExpression(node.lastChild, constructors, infixData))
+            return new AndNode(parseExpression(node.firstChild!, constructors, infixData), parseExpression(node.lastChild!, constructors, infixData))
         case ORELSE_EXPRESSION:
-            return new OrNode(parseExpression(node.firstChild, constructors, infixData), parseExpression(node.lastChild, constructors, infixData))
+            return new OrNode(parseExpression(node.firstChild!, constructors, infixData), parseExpression(node.lastChild!, constructors, infixData))
         case IF_EXPRESSION:
             const [conditionExp, trueCaseExp, falseCaseExp] = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
             return new ApplicationNode([
@@ -98,15 +98,15 @@ export const parseExpression = (node: Parser.SyntaxNode, constructors: Construct
                         patterns: [parameterlessConstructorPattern("false")],
                         body: falseCaseExp
                     }
-                ], null),
+                ]),
                 conditionExp
             ])
         case RAISE_EXPRESSION:
-            return new ExceptionNode(parseExpression(node.lastChild, constructors, infixData))
+            return new ExceptionNode(parseExpression(node.lastChild!, constructors, infixData))
         case HANDLE_EXPRESSION:
-            return new HandleNode(parseExpression(node.firstChild, constructors, infixData), parseMatch(node.lastChild, constructors, infixData))
+            return new HandleNode(parseExpression(node.firstChild!, constructors, infixData), parseMatch(node.lastChild!, constructors, infixData))
         case SELECTOR_EXPRESSION:
-            const index = parseInt(node.lastChild.text)
+            const index = parseInt(node.lastChild!.text)
             return new SelectorNode(index - 1)
         case LET_EXPRESSION:
             let subEnv: Environment = {bindings: new Map(), constructors, infixData}
@@ -142,8 +142,8 @@ const parseMatch = (node: Parser.SyntaxNode, constructors: Constructors, infixDa
 }
 
 const parseRule = (node: Parser.SyntaxNode, constructors: Constructors, infixData: InfixData): Clause => {
-    const pattern = parsePattern(node.firstChild, constructors, infixData)
-    const body = parseExpression(node.lastChild, constructors, infixData)
+    const pattern = parsePattern(node.firstChild!, constructors, infixData)
+    const body = parseExpression(node.lastChild!, constructors, infixData)
     return {patterns: [pattern], body}
 }
 

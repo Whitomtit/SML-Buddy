@@ -1,26 +1,39 @@
 import Heap from "heap-js";
 import {PolymorphicType, PrimitiveType, Type} from "./models/types";
 import {HoleNode, RecursiveFunctionNode, SymbolicNode} from "./models/symbolic_nodes";
-import {parseProgram} from "./parsers/program";
-import {promises as fs} from "fs";
+import {parseProgram, SMLParser} from "./parsers/program";
 import {Generator} from "./engine/generator";
 import {init} from "z3-solver";
 import {createCustomContext} from "./models/context";
 import {SymbolicExecutor} from "./engine/symbolicExecutor";
 
-const main = async () => {
+export const main = async (parser: SMLParser) => {
     const targetType = new PrimitiveType("btree")
     const targetFun = "mirror"
 
     const minHeap = new Heap<SymbolicNode>((a, b) => a.size() - b.size())
     minHeap.init([new HoleNode(targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>())])
 
-    const referenceInput = await fs.readFile("benchmarks/mirror/sol.sml", "utf-8")
-    const buggyInput = await fs.readFile("benchmarks/mirror/sub11.sml", "utf-8")
+    const referenceInput = "\n" +
+        "datatype btree = Empty | Node of int * btree * btree\n" +
+        "\n" +
+        "fun mirror t =\n" +
+        "  case t of\n" +
+        "    Empty => Empty\n" +
+        "  | Node (n, l, r) => Node (n, mirror r, mirror l)\n" +
+        "\n"
+    const buggyInput = "\n" +
+        "datatype btree = Empty | Node of int * btree * btree\n" +
+        "\n" +
+        "fun mirror t =\n" +
+        "  case t of\n" +
+        "    Empty => Empty\n" +
+        "  | Node (a, b, c) => if b = Empty orelse c = Empty then Node (a, c, b) else Node (a, mirror c, mirror b)\n" +
+        "\n"
 
     printSection("PARSING")
-    const referenceEnv = parseProgram(referenceInput)
-    const buggyEnv = parseProgram(buggyInput)
+    const referenceEnv = parseProgram(referenceInput, parser)
+    const buggyEnv = parseProgram(buggyInput, parser)
 
     printSection("SYMBOLIC SUMMARIES")
     const referenceFun = <RecursiveFunctionNode>referenceEnv.bindings.get(targetFun)
@@ -35,7 +48,7 @@ const main = async () => {
 
     const generator = new Generator(referenceEnv.constructors)
     while (minHeap.size() > 0) {
-        const testCase = minHeap.pop()
+        const testCase = minHeap.pop()!
         if (testCase.isGround()) {
             console.log("CHECKING ", testCase.toString(), testCase.size())
             const checkResult = await symbolicExecutor.check(testCase)
@@ -56,12 +69,9 @@ const main = async () => {
         generator.generate(testCase, minHeap)
     }
     printSection("END")
-    process.exit(0)
 }
 
 const printSection = (title: string) => {
     console.log("\n\n")
     console.log("=== " + title + " ===")
 }
-
-void main()
