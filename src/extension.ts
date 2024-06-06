@@ -5,6 +5,7 @@ import {Environment, parseProgram, SMLParser} from "./parsers/program";
 import {ConfigurationError, ExecutorError, NotImplementedError, TimeoutError} from "./models/errors";
 import {CounterExampleSearcher} from "./engine/counterExampleSearcher";
 import {RecursiveFunctionNode} from "./models/symbolic_nodes";
+import {FileDownloader, getApi} from "@microsoft/vscode-file-downloader-api";
 
 const CONFIG_LOADED_WHEN = "smlbuddy.configLoaded"
 
@@ -46,8 +47,9 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
     readonly context: vscode.ExtensionContext
     readonly parser: Promise<SMLParser>
     readonly suits: Map<string, Suite>
-    private workspaceConfigLoading: Promise<void>
-    private _workspaceConfigLoading: (value: void) => void
+    readonly fileDownloader: Promise<FileDownloader>
+
+
     private _onDidChangeTreeData: vscode.EventEmitter<void> = new vscode.EventEmitter<void>();
     readonly onDidChangeTreeData: vscode.Event<void> = this._onDidChangeTreeData.event;
 
@@ -55,26 +57,13 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         this.context = context
         this.parser = parser
         this.suits = new Map<string, Suite>()
-        this._workspaceConfigLoading = () => 0
-        this.workspaceConfigLoading = new Promise<void>((resolve) => this._workspaceConfigLoading = resolve)
-
+        this.fileDownloader = getApi()
     }
 
     private static functionTypeConstructorName = (functionName: string) => `${functionName}_type___`;
 
     setWorkspaceConfigLoaded = async (value: boolean) => {
         await vscode.commands.executeCommand("setContext", CONFIG_LOADED_WHEN, value)
-        if (value) {
-            this._workspaceConfigLoading()
-        } else {
-            this.workspaceConfigLoading = new Promise<void>((resolve) => {
-                const oldVal = this._workspaceConfigLoading
-                this._workspaceConfigLoading = () => {
-                    oldVal()
-                    resolve()
-                }
-            })
-        }
     };
 
     loadPersistentConfig = async () => {
@@ -88,7 +77,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             if (!await vscode.workspace.fs.stat(configPath).then(() => true, () => false)) {
                 return
             }
-            await this._loadConfiguration(configPath)
+            await this._loadConfigurationFile(configPath)
         } catch (e) {
             if (e instanceof ConfigurationError) {
                 void vscode.window.showErrorMessage(e.message)
@@ -99,16 +88,45 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         }
     }
 
-    loadConfiguration = async (uri: Uri) => {
+    addConfigurationByLink = async (uri: Uri) => {
+        const fileDownloader = await this.fileDownloader
+        const file = await fileDownloader.downloadFile(uri, "suites.smlbuddy", this.context)
+        await this.addConfiguration(file)
+    }
+
+    addConfiguration = async (uri: Uri) => {
         try {
-            await this._loadConfiguration(uri)
+            await this._loadConfigurationFile(uri)
         } catch (e) {
             if (e instanceof ConfigurationError) {
                 void vscode.window.showErrorMessage(e.message)
             }
             throw e
         }
-        await vscode.workspace.fs.copy(uri, this.getPersistentConfigPath()!, {overwrite: true})
+
+        if (!await vscode.workspace.fs.stat(uri).then(() => true, () => false)) {
+            await vscode.workspace.fs.copy(uri, this.getPersistentConfigPath()!)
+        } else {
+            // need to merge two files
+            const newConfigRaw = await vscode.workspace.fs.readFile(uri)
+            const oldConfigRaw = await vscode.workspace.fs.readFile(this.getPersistentConfigPath()!)
+
+            const newConfig = JSON.parse(Buffer.from(newConfigRaw).toString('utf-8'))
+            const oldConfig = JSON.parse(Buffer.from(oldConfigRaw).toString('utf-8'))
+
+            const newConfigArray = Array.isArray(newConfig) ? newConfig : [newConfig]
+            const oldConfigArray = Array.isArray(oldConfig) ? oldConfig : [oldConfig]
+
+            const nameSet: Set<string> = new Set(newConfigArray.map((suite: SerializedSuite) => suite.name))
+            const mergedConfig = newConfigArray
+
+            for (const suite of oldConfigArray) {
+                if (!nameSet.has(suite.name)) {
+                    mergedConfig.push(suite)
+                }
+            }
+            await vscode.workspace.fs.writeFile(this.getPersistentConfigPath()!, Buffer.from(JSON.stringify(mergedConfig)))
+        }
         await this.setWorkspaceConfigLoaded(true)
     }
 
@@ -119,18 +137,70 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         return vscode.Uri.joinPath(this.context.storageUri, "suites.smlbuddy")
     };
 
+    removeSuite = async (suite: Suite) => {
+        this.suits.delete(suite.name)
+        const rawData = await vscode.workspace.fs.readFile(this.getPersistentConfigPath()!)
+        const data = Buffer.from(rawData).toString('utf-8')
+
+        const config = JSON.parse(data)
+        const configArray = Array.isArray(config) ? config : [config]
+
+        const newConfig = configArray.filter((s: SerializedSuite) => s.name !== suite.name)
+
+        await vscode.workspace.fs.writeFile(this.getPersistentConfigPath()!, Buffer.from(JSON.stringify(newConfig)))
+        this.refresh()
+    }
+
     getChildren = (element?: SMLBuddyTreeItem): ProviderResult<SMLBuddyTreeItem[]> => {
         if (!element) {
-            return new Promise<SMLBuddyTreeItem[]>(async (resolve) => {
-                await this.workspaceConfigLoading
-                resolve(Array.from(this.suits.values()))
-            })
+            return Array.from(this.suits.values())
         }
         if (element instanceof Suite) {
             return element.functions
         }
         return []
     };
+
+    private _loadConfigurationFile = async (uri: Uri) => {
+        const rawData = await vscode.workspace.fs.readFile(uri)
+        const data = Buffer.from(rawData).toString('utf-8')
+        const config = JSON.parse(data)
+
+        if (Array.isArray(config)) {
+            for (const suite of config) {
+                await this._loadConfiguration(suite)
+            }
+        } else {
+            await this._loadConfiguration(config)
+        }
+    }
+
+    private _loadConfiguration = async (config: any) => {
+        if (!isSerializedSuite(config)) {
+            throw new ConfigurationError("Not a configuration file")
+        }
+        const parser = await this.parser
+        let suiteEnv: Environment
+        try {
+            suiteEnv = parseProgram(parser, config.program)
+        } catch (e) {
+            throw new ConfigurationError("Invalid program in the configuration file")
+        }
+
+        const functions = config.functionNames.map((name: string): CheckableFunction => {
+            const node = suiteEnv.bindings.get(name)
+            if (!node) {
+                throw new ConfigurationError(`Function ${name} not found in the configuration file`)
+            }
+            const type = suiteEnv.constructors.get(SMLBuddyContext.functionTypeConstructorName(name))
+            if (!type) {
+                throw new ConfigurationError(`Type for function ${name} not found in the configuration file`)
+            }
+            return new CheckableFunction(name, new CounterExampleSearcher(name, type.argType, suiteEnv, node as RecursiveFunctionNode))
+        })
+        this.suits.set(config.name, new Suite(config.name, functions))
+        this.refresh()
+    }
 
     getTreeItem = (element: SMLBuddyTreeItem): TreeItem | Thenable<TreeItem> => {
         if (element instanceof Suite) {
@@ -200,35 +270,6 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
     refresh(): void {
         this._onDidChangeTreeData.fire();
     }
-
-    private _loadConfiguration = async (uri: Uri) => {
-        const rawData = await vscode.workspace.fs.readFile(uri)
-        const data = Buffer.from(rawData).toString('utf-8')
-        const config = JSON.parse(data)
-        if (!isSerializedSuite(config)) {
-            throw new ConfigurationError("Not a configuration file")
-        }
-        const parser = await this.parser
-        let suiteEnv: Environment
-        try {
-            suiteEnv = parseProgram(parser, config.program)
-        } catch (e) {
-            throw new ConfigurationError("Invalid program in the configuration file")
-        }
-
-        const functions = config.functionNames.map((name: string): CheckableFunction => {
-            const node = suiteEnv.bindings.get(name)
-            if (!node) {
-                throw new ConfigurationError(`Function ${name} not found in the configuration file`)
-            }
-            const type = suiteEnv.constructors.get(SMLBuddyContext.functionTypeConstructorName(name))
-            if (!type) {
-                throw new ConfigurationError(`Type for function ${name} not found in the configuration file`)
-            }
-            return new CheckableFunction(name, new CounterExampleSearcher(name, type.argType, suiteEnv, node as RecursiveFunctionNode))
-        })
-        this.suits.set(config.name, new Suite(config.name, functions))
-    };
 }
 
 const initLanguage = async (context: vscode.ExtensionContext): Promise<SMLParser> => {
@@ -258,7 +299,33 @@ export const activate = (context: vscode.ExtensionContext) => {
             return
         }
         const configFilePath = userFileChoice[0]
-        await smlBuddyContext.loadConfiguration(configFilePath)
+        await smlBuddyContext.addConfiguration(configFilePath)
+    })
+
+    const loadConfigLinkCommand = vscode.commands.registerCommand('smlbuddy.loadConfigLink', async () => {
+        const userLinkChoice = await vscode.window.showInputBox({
+            prompt: "Enter the link to the configuration file",
+            placeHolder: "https://example.com/suites.smlbuddy",
+            validateInput: (value: string) => {
+                if (!value.trim()) {
+                    return 'URL cannot be empty';
+                }
+
+                try {
+                    // Attempt to create a URL object from the input
+                    vscode.Uri.parse(value, true);
+                } catch (error) {
+                    return 'Please enter a valid URL';
+                }
+                // No validation errors
+                return undefined;
+            }
+        })
+        if (!userLinkChoice) {
+            return
+        }
+        const uri = vscode.Uri.parse(userLinkChoice, true)
+        await smlBuddyContext.addConfigurationByLink(uri)
     })
 
     const searchCounterExampleCommand = vscode.commands.registerCommand('smlbuddy.searchCounterExample', async (func?: CheckableFunction): Promise<void> => {
@@ -325,6 +392,14 @@ export const activate = (context: vscode.ExtensionContext) => {
             vscode.window.showErrorMessage('Failed to copy to clipboard');
         }
     })
+
+    const deleteSuiteCommand = vscode.commands.registerCommand('smlbuddy.deleteSuite', async (suite?: Suite) => {
+        if (!suite) {
+            return
+        }
+        await smlBuddyContext.removeSuite(suite)
+    })
+
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
         await smlBuddyContext.loadPersistentConfig()
     })
@@ -333,8 +408,10 @@ export const activate = (context: vscode.ExtensionContext) => {
         treeDataProvider: smlBuddyContext
     })
     context.subscriptions.push(loadConfigFileCommand);
+    context.subscriptions.push(loadConfigLinkCommand);
     context.subscriptions.push(searchCounterExampleCommand);
     context.subscriptions.push(copyCounterExampleCommand);
+    context.subscriptions.push(deleteSuiteCommand);
     context.subscriptions.push(treeView);
 
     void smlBuddyContext.loadPersistentConfig()

@@ -11,33 +11,45 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
+  "extensionDependencies": [
+    "mindaro-dev.file-downloader"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "smlbuddy.loadConfigFile",
         "title": "Load configuration file",
         "category": "SMLBuddy",
-        "when": "workbenchState != empty"
+        "when": "workbenchState != empty",
+        "icon": "$(plus)"
       },
       {
-        "command": "sml-buddy.loadConfigLink",
+        "command": "smlbuddy.loadConfigLink",
         "title": "Get configuration by url",
         "category": "SMLBuddy",
-        "when": "workbenchState != empty"
+        "when": "workbenchState != empty",
+        "icon": "$(link)"
       },
       {
         "command": "smlbuddy.searchCounterExample",
         "title": "Search for counter example",
         "category": "SMLBuddy",
         "when": "never",
-        "icon": "resources/refresh.svg"
+        "icon": "$(refresh)"
       },
       {
         "command": "smlbuddy.copyCounterExample",
         "title": "Copy counter example to clipboard",
         "category": "SMLBuddy",
         "when": "never",
-        "icon": "resources/files.svg"
+        "icon": "$(files)"
+      },
+      {
+        "command": "smlbuddy.deleteSuite",
+        "title": "Remove suite",
+        "category": "SMLBuddy",
+        "when": "never",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -51,13 +63,30 @@
           "command": "smlbuddy.copyCounterExample",
           "when": "view == smlbuddyView && viewItem == function-counter-example",
           "group": "inline"
+        },
+        {
+          "command": "smlbuddy.deleteSuite",
+          "when": "view == smlbuddyView && viewItem == suite",
+          "group": "inline"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "smlbuddy.loadConfigFile",
+          "when": "view == smlbuddyView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "smlbuddy.loadConfigLink",
+          "when": "view == smlbuddyView",
+          "group": "navigation@2"
         }
       ]
     },
     "viewsWelcome": [
       {
         "view": "smlbuddyView",
-        "contents": "In order to use SMLByddy features, you can open a resource file or clone from a URL.\n[Open File](command:smlbuddy.loadConfigFile)\n[Clone Resource](command:command:sml-buddy.loadConfigLink)",
+        "contents": "In order to use SMLByddy features, you can open a resource file or clone from a URL.\n[Open File](command:smlbuddy.loadConfigFile)\n[Clone Resource](command:smlbuddy.loadConfigLink)",
         "when": "workbenchState != empty && smlbuddy.configLoaded"
       },
       {
@@ -111,6 +140,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@microsoft/vscode-file-downloader-api": "^1.0.1",
     "heap-js": "^2.5.0",
     "web-tree-sitter": "0.15.6",
     "z3-solver": "^4.13.0"
