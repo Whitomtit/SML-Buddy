@@ -24,8 +24,32 @@
         "title": "Get configuration by url",
         "category": "SMLBuddy",
         "when": "workbenchState != empty"
+      },
+      {
+        "command": "smlbuddy.searchCounterExample",
+        "title": "Search for counter example",
+        "category": "SMLBuddy",
+        "when": "never"
+      },
+      {
+        "command": "smlbuddy.copyCounterExample",
+        "title": "Copy counter example to clipboard",
+        "category": "SMLBuddy",
+        "when": "never"
       }
     ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "smlbuddy.searchCounterExample",
+          "when": "view == smlbuddyView && viewItem != function-verifying && viewItem =~ /function-.*$/"
+        },
+        {
+          "command": "smlbuddy.copyCounterExample",
+          "when": "view == smlbuddyView && viewItem == function-counter-example"
+        }
+      ]
+    },
     "viewsWelcome": [
       {
         "view": "smlbuddyView",

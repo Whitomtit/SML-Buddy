@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import {ProviderResult, TreeItem, Uri} from 'vscode';
 import Parser from 'web-tree-sitter';
 import {Environment, parseProgram, SMLParser} from "./parsers/program";
-import {Type} from "./models/types";
-import {ConfigurationError} from "./models/errors";
-import {SymbolicNode} from "./models/symbolic_nodes";
+import {ConfigurationError, ExecutorError, NotImplementedError, TimeoutError} from "./models/errors";
+import {CounterExampleSearcher} from "./engine/counterExampleSearcher";
+import {RecursiveFunctionNode} from "./models/symbolic_nodes";
 
 const CONFIG_LOADED_WHEN = "smlbuddy.configLoaded"
 
@@ -20,12 +20,14 @@ const isSerializedSuite = (obj: any): obj is SerializedSuite => {
         Array.isArray(obj.functionNames) && obj.functionNames.every((name: any) => typeof name === 'string')
 }
 
+type CheckableFunctionState = "unverified" | "verifying" | "verified" | "timeout" | "counter-example" | "error"
+
 class CheckableFunction {
     constructor(
         readonly name: string,
-        readonly returnType: Type,
-        readonly node: SymbolicNode,
-        readonly env: Environment
+        readonly searcher: CounterExampleSearcher,
+        public state: CheckableFunctionState = "unverified",
+        public counterExample: string | null = null
     ) {
     }
 }
@@ -46,6 +48,8 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
     readonly suits: Map<string, Suite>
     private workspaceConfigLoading: Promise<void>
     private _workspaceConfigLoading: (value: void) => void
+    private _onDidChangeTreeData: vscode.EventEmitter<void> = new vscode.EventEmitter<void>();
+    readonly onDidChangeTreeData: vscode.Event<void> = this._onDidChangeTreeData.event;
 
     constructor(context: vscode.ExtensionContext, parser: Promise<SMLParser>) {
         this.context = context
@@ -53,6 +57,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         this.suits = new Map<string, Suite>()
         this._workspaceConfigLoading = () => 0
         this.workspaceConfigLoading = new Promise<void>((resolve) => this._workspaceConfigLoading = resolve)
+
     }
 
     private static functionTypeConstructorName = (functionName: string) => `${functionName}_type___`;
@@ -132,15 +137,69 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             return {
                 label: element.name,
                 collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
-                iconPath: new vscode.ThemeIcon("versions")
+                iconPath: new vscode.ThemeIcon("versions"),
+                contextValue: "suite",
+            }
+        }
+        // it's a function
+
+        if (element.state === "verified") {
+            return {
+                label: `${element.name} - verified`,
+                collapsibleState: vscode.TreeItemCollapsibleState.None,
+                iconPath: new vscode.ThemeIcon("check-all", new vscode.ThemeColor("testing.runAction")),
+                contextValue: "function-verified",
+                tooltip: "Function has been completely verified"
+            }
+        }
+        if (element.state === "timeout") {
+            return {
+                label: `${element.name} - verified`,
+                collapsibleState: vscode.TreeItemCollapsibleState.None,
+                iconPath: new vscode.ThemeIcon("check", new vscode.ThemeColor("testing.runAction")),
+                contextValue: "function-timeout",
+                tooltip: "No counter-example found in the time limit"
+            }
+        }
+        if (element.state === "verifying") {
+            return {
+                label: `${element.name} - verifying`,
+                collapsibleState: vscode.TreeItemCollapsibleState.None,
+                iconPath: new vscode.ThemeIcon("sync~spin"),
+                contextValue: "function-verifying",
+                tooltip: "Searching for counter-example..."
+            }
+        }
+        if (element.state === "counter-example") {
+            return {
+                label: `${element.name} - counter-example found`,
+                collapsibleState: vscode.TreeItemCollapsibleState.None,
+                iconPath: new vscode.ThemeIcon("alert", new vscode.ThemeColor("notificationsWarningIcon.foreground")),
+                contextValue: "function-counter-example",
+                tooltip: "Counter-example found. Right click to see it."
+            }
+        }
+        if (element.state === "error") {
+            return {
+                label: `${element.name} - error`,
+                collapsibleState: vscode.TreeItemCollapsibleState.None,
+                iconPath: new vscode.ThemeIcon("error", new vscode.ThemeColor("testing.iconFailed")),
+                contextValue: "function-error",
+                tooltip: "An error occurred while verifying the function"
             }
         }
         return {
-            label: element.name,
+            label: `${element.name} - unverified`,
             collapsibleState: vscode.TreeItemCollapsibleState.None,
-            iconPath: new vscode.ThemeIcon("debug-restart")
+            iconPath: new vscode.ThemeIcon("circle-outline"),
+            contextValue: "function-unverified",
+            tooltip: "Function has not been verified yet. Right click to verify."
         }
     };
+
+    refresh(): void {
+        this._onDidChangeTreeData.fire();
+    }
 
     private _loadConfiguration = async (uri: Uri) => {
         const rawData = await vscode.workspace.fs.readFile(uri)
@@ -166,11 +225,10 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             if (!type) {
                 throw new ConfigurationError(`Type for function ${name} not found in the configuration file`)
             }
-            return new CheckableFunction(name, type, node, suiteEnv)
+            return new CheckableFunction(name, new CounterExampleSearcher(name, type.argType, suiteEnv, node as RecursiveFunctionNode))
         })
         this.suits.set(config.name, new Suite(config.name, functions))
     };
-
 }
 
 const initLanguage = async (context: vscode.ExtensionContext): Promise<SMLParser> => {
@@ -202,6 +260,71 @@ export const activate = (context: vscode.ExtensionContext) => {
         const configFilePath = userFileChoice[0]
         await smlBuddyContext.loadConfiguration(configFilePath)
     })
+
+    const searchCounterExampleCommand = vscode.commands.registerCommand('smlbuddy.searchCounterExample', async (func?: CheckableFunction): Promise<void> => {
+        if (!func) {
+            return
+        }
+        func.counterExample = null
+        if (!vscode.window.activeTextEditor) {
+            await vscode.window.showErrorMessage("Open a file with the function definition first")
+            return
+        }
+        const checkedCode = vscode.window.activeTextEditor.document.getText()
+        func.state = "verifying"
+        smlBuddyContext.refresh()
+
+        let finalState: CheckableFunctionState = "unverified"
+        try {
+            const parser = await smlParser
+            const checkedEnv = parseProgram(parser, checkedCode)
+            const checkedFunc = checkedEnv.bindings.get(func.name)
+            if (!checkedFunc) {
+                finalState = "error"
+                vscode.window.showErrorMessage(`Function ${func.name} not found in the code`)
+                return
+            }
+            vscode.window.showInformationMessage(`Searching counter-example for ${func.name}`)
+            const counterExample = await func.searcher.search(checkedEnv, checkedFunc as RecursiveFunctionNode)
+            if (counterExample) {
+                finalState = "counter-example"
+                vscode.window.showWarningMessage(`Counter-example found for ${func.name}: ${counterExample}`)
+                func.counterExample = counterExample
+                return
+            }
+            vscode.window.showInformationMessage(`No counter-example found for ${func.name}`)
+            finalState = "verified"
+        } catch (e) {
+            if (e instanceof TypeError || e instanceof ExecutorError) {
+                finalState = "error"
+                vscode.window.showErrorMessage(`Unexpected error occurred. Are you sure the program compiles and ${func.name} has the right type?`)
+            } else if (e instanceof NotImplementedError) {
+                finalState = "error"
+                vscode.window.showErrorMessage(`You're trying to use a feature that is not implemented yet`)
+            } else {
+                finalState = "timeout"
+                vscode.window.showInformationMessage(`No counter-example found for ${func.name}`)
+                if (!(e instanceof TimeoutError)) {
+                    throw e
+                }
+            }
+        } finally {
+            func.state = finalState
+            smlBuddyContext.refresh()
+        }
+    })
+
+    const copyCounterExampleCommand = vscode.commands.registerCommand('smlbuddy.copyCounterExample', async (func?: CheckableFunction) => {
+        if (!func || func.state !== "counter-example") {
+            return
+        }
+        try {
+            await vscode.env.clipboard.writeText(func.counterExample!);
+            vscode.window.showInformationMessage('Copied to clipboard!');
+        } catch (err) {
+            vscode.window.showErrorMessage('Failed to copy to clipboard');
+        }
+    })
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
         await smlBuddyContext.loadPersistentConfig()
     })
@@ -210,6 +333,8 @@ export const activate = (context: vscode.ExtensionContext) => {
         treeDataProvider: smlBuddyContext
     })
     context.subscriptions.push(loadConfigFileCommand);
+    context.subscriptions.push(searchCounterExampleCommand);
+    context.subscriptions.push(copyCounterExampleCommand);
     context.subscriptions.push(treeView);
 
     void smlBuddyContext.loadPersistentConfig()
