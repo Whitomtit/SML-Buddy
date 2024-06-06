@@ -29,24 +29,28 @@
         "command": "smlbuddy.searchCounterExample",
         "title": "Search for counter example",
         "category": "SMLBuddy",
-        "when": "never"
+        "when": "never",
+        "icon": "resources/refresh.svg"
       },
       {
         "command": "smlbuddy.copyCounterExample",
         "title": "Copy counter example to clipboard",
         "category": "SMLBuddy",
-        "when": "never"
+        "when": "never",
+        "icon": "resources/files.svg"
       }
     ],
     "menus": {
       "view/item/context": [
         {
           "command": "smlbuddy.searchCounterExample",
-          "when": "view == smlbuddyView && viewItem != function-verifying && viewItem =~ /function-.*$/"
+          "when": "view == smlbuddyView && viewItem != function-verifying && viewItem =~ /function-.*$/",
+          "group": "inline"
         },
         {
           "command": "smlbuddy.copyCounterExample",
-          "when": "view == smlbuddyView && viewItem == function-counter-example"
+          "when": "view == smlbuddyView && viewItem == function-counter-example",
+          "group": "inline"
         }
       ]
     },

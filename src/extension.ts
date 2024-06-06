@@ -176,7 +176,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
                 collapsibleState: vscode.TreeItemCollapsibleState.None,
                 iconPath: new vscode.ThemeIcon("alert", new vscode.ThemeColor("notificationsWarningIcon.foreground")),
                 contextValue: "function-counter-example",
-                tooltip: "Counter-example found. Right click to see it."
+                tooltip: "Counter-example found"
             }
         }
         if (element.state === "error") {
@@ -193,7 +193,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             collapsibleState: vscode.TreeItemCollapsibleState.None,
             iconPath: new vscode.ThemeIcon("circle-outline"),
             contextValue: "function-unverified",
-            tooltip: "Function has not been verified yet. Right click to verify."
+            tooltip: "Function has not been verified yet"
         }
     };
 
