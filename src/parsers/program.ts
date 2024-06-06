@@ -40,7 +40,7 @@ const a = new PolymorphicType()
 
 export const list = new PrimitiveType("list")
 
-export const parseProgram = (program: string, parser: SMLParser): Environment => {
+export const parseProgram = (parser: SMLParser, program: string): Environment => {
     const parseTree = parser.parse(program)
 
     const notFunction = (node: SymbolicNode): SymbolicNode => {

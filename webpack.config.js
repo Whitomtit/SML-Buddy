@@ -58,7 +58,8 @@ const extensionConfig = {
                     transform(content) {
                         return content.toString().replace(/importScripts\(.*\);/g, 'importScripts(__dirname + \'/z3-built.js\')');
                     }
-                }
+                },
+                {from: 'resources', to: 'resources'}
             ],
         }),
     ],

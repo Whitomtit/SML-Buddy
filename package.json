@@ -1,5 +1,5 @@
 {
-  "name": "sml-buddy",
+  "name": "smlbuddy",
   "displayName": "SML Buddy",
   "description": "",
   "version": "0.0.1",
@@ -14,10 +14,47 @@
   "contributes": {
     "commands": [
       {
-        "command": "sml-buddy.helloWorld",
-        "title": "Hello World"
+        "command": "smlbuddy.loadConfigFile",
+        "title": "Load configuration file",
+        "category": "SMLBuddy",
+        "when": "workbenchState != empty"
+      },
+      {
+        "command": "sml-buddy.loadConfigLink",
+        "title": "Get configuration by url",
+        "category": "SMLBuddy",
+        "when": "workbenchState != empty"
       }
-    ]
+    ],
+    "viewsWelcome": [
+      {
+        "view": "smlbuddyView",
+        "contents": "In order to use SMLByddy features, you can open a resource file or clone from a URL.\n[Open File](command:smlbuddy.loadConfigFile)\n[Clone Resource](command:command:sml-buddy.loadConfigLink)",
+        "when": "workbenchState != empty && smlbuddy.configLoaded"
+      },
+      {
+        "view": "smlbuddyView",
+        "contents": "In order to use SMLByddy features, you have to open a workspace.\n[Open Workspace](command:vscode.openFolder)",
+        "when": "workbenchState == empty"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "smlbuddy",
+          "title": "SMLBuddy",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "smlbuddy": [
+        {
+          "id": "smlbuddyView",
+          "name": "SMLBuddy"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

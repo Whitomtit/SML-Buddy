@@ -30,3 +30,9 @@ export class MergeError extends Error {
         super("Cannot merge types");
     }
 }
+
+export class ConfigurationError extends Error {
+    constructor(message: string) {
+        super(message);
+    }
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <!-- Outline Circle -->
+    <circle cx="32" cy="32" r="30" fill="none" stroke="#000" stroke-width="2"/>
+
+    <!-- Outline Paths -->
+    <path d="M32 2C15.434 2 2 15.434 2 32s13.434 30 30 30s30-13.434 30-30S48.566 2 32 2z" fill="none" stroke="#000"
+          stroke-width="2"/>
+
+    <path d="M32 7.724c-12.275 0-22.276 10-22.276 22.276s10 22.276 22.276 22.276S54.276 42.276 54.276 30S44.275 7.724 32 7.724zm0 40.001c-11.77 0-21.276-9.506-21.276-21.276S20.23 5.172 32 5.172s21.276 9.506 21.276 21.276S43.77 47.725 32 47.725z"
+          fill="none" stroke="#000" stroke-width="2"/>
+
+    <!-- Outline Inner Circle -->
+    <circle cx="32" cy="32" r="20" fill="none" stroke="#000" stroke-width="2"/>
+
+    <!-- Outline Box -->
+    <path d="M17 17h30v30H17V17zm2 2v26h26V19H19zm2 2h22v22H21V21z" fill="#000"/>
+</svg>

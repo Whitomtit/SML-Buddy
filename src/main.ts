@@ -32,8 +32,8 @@ export const main = async (parser: SMLParser) => {
         "\n"
 
     printSection("PARSING")
-    const referenceEnv = parseProgram(referenceInput, parser)
-    const buggyEnv = parseProgram(buggyInput, parser)
+    const referenceEnv = parseProgram(parser, referenceInput)
+    const buggyEnv = parseProgram(parser, buggyInput)
 
     printSection("SYMBOLIC SUMMARIES")
     const referenceFun = <RecursiveFunctionNode>referenceEnv.bindings.get(targetFun)
