@@ -9,12 +9,26 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:sml"
+  ],
   "main": "./dist/extension.js",
   "extensionDependencies": [
     "mindaro-dev.file-downloader"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "sml",
+        "aliases": [
+          "Standard ML",
+          "sml"
+        ],
+        "extensions": [
+          ".sml"
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "smlbuddy.loadConfigFile",
@@ -35,7 +49,7 @@
         "title": "Search for counter example",
         "category": "SMLBuddy",
         "when": "never",
-        "icon": "$(refresh)"
+        "icon": "$(play)"
       },
       {
         "command": "smlbuddy.copyCounterExample",
