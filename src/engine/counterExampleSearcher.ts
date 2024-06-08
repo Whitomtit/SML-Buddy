@@ -7,6 +7,7 @@ import {createCustomContext} from "../models/context";
 import {init} from "z3-solver";
 import {Generator} from "./generator";
 import {TimeoutError} from "../models/errors";
+import {CounterExample} from "../extension";
 
 const DEFAULT_TIMEOUT = 60000
 
@@ -33,7 +34,7 @@ export class CounterExampleSearcher {
         this.timeout = timeout
     }
 
-    search = async (checkedEnv: Environment, checkedFun: RecursiveFunctionNode): Promise<string | null> => {
+    search = async (checkedEnv: Environment, checkedFun: RecursiveFunctionNode): Promise<CounterExample | null> => {
         this.cases.clear()
         this.cases.push(new HoleNode(this.targetType, new Map<string, Type>(), new Map<PolymorphicType, Type>()))
 
@@ -59,7 +60,11 @@ export class CounterExampleSearcher {
                     if (referenceResult.eqTo(checkedResult)) {
                         continue
                     }
-                    return concreteCase.toSMLString(checkedEnv.infixData)
+                    return {
+                        input: concreteCase.toSMLString(checkedEnv.infixData),
+                        output: checkedResult.toSMLString(checkedEnv.infixData),
+                        expectedOutput: referenceResult.toSMLString(checkedEnv.infixData)
+                    }
                 }
                 continue
             }

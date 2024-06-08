@@ -46,14 +46,14 @@
       },
       {
         "command": "smlbuddy.searchCounterExample",
-        "title": "Search for counter example",
+        "title": "Search for counter-example",
         "category": "SMLBuddy",
         "when": "never",
         "icon": "$(play)"
       },
       {
         "command": "smlbuddy.copyCounterExample",
-        "title": "Copy counter example to clipboard",
+        "title": "Copy counter-example to clipboard",
         "category": "SMLBuddy",
         "when": "never",
         "icon": "$(files)"

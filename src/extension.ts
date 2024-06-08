@@ -5,6 +5,7 @@ import {
     Range,
     TextDocument,
     TextDocumentContentChangeEvent,
+    TextDocumentContentProvider,
     TreeItem,
     Uri
 } from 'vscode';
@@ -32,12 +33,18 @@ const isSerializedSuite = (obj: any): obj is SerializedSuite => {
 
 type CheckableFunctionState = "unverified" | "verifying" | "verified" | "timeout" | "counter-example" | "error";
 
+export type CounterExample = {
+    input: string,
+    output: string,
+    expectedOutput: string,
+}
+
 class CheckableFunction {
     constructor(
         readonly name: string,
         readonly searcher: CounterExampleSearcher,
         public state: CheckableFunctionState = "unverified",
-        public counterExample: string | null = null
+        public counterExample: CounterExample | null = null
     ) {
     }
 }
@@ -52,7 +59,7 @@ class Suite {
 
 type SMLBuddyTreeItem = Suite | CheckableFunction;
 
-export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem> {
+export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem>, TextDocumentContentProvider {
     readonly context: vscode.ExtensionContext;
     readonly parser: Promise<SMLParser>;
     readonly suits: Map<string, Suite>;
@@ -80,6 +87,20 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
 
     private _onDidChangeTreeData: vscode.EventEmitter<void> = new vscode.EventEmitter<void>();
     readonly onDidChangeTreeData: vscode.Event<void> = this._onDidChangeTreeData.event;
+    private _onDidChange: vscode.EventEmitter<Uri> = new vscode.EventEmitter<Uri>();
+    readonly onDidChange = this._onDidChange.event;
+
+    provideTextDocumentContent = (uri: Uri): ProviderResult<string> => {
+        const func = Array.from(this.suits.values()).flatMap((suite) => suite.functions).find((func) => func.name === uri.path.slice(1));
+        if (!func) {
+            return "Function not found";
+        }
+        if (!func.counterExample) {
+            return "No counter-example found";
+        }
+
+        return `Input:\n${func.counterExample.input}\n\nExpected output:\n${func.counterExample.expectedOutput}\n\nActual output:\n${func.counterExample.output}`;
+    };
 
     constructor(context: vscode.ExtensionContext, parser: Promise<SMLParser>) {
         this.context = context;
@@ -339,6 +360,10 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         }
     };
 
+    updateVirtualDocument = async (uri: Uri) => {
+        this._onDidChange.fire(uri);
+    }
+
     initDocument = async (document: TextDocument) => {
         if (document.languageId !== "sml") {
             return;
@@ -389,7 +414,11 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         if (!editor || editor.document !== document) {
             return;
         }
-        const tree = this.trees.get(document.uri.toString())!, root = tree.rootNode, functionNodes = root.namedChildren
+        const tree = this.trees.get(document.uri.toString());
+        if (!tree) {
+            return;
+        }
+        const root = tree.rootNode, functionNodes = root.namedChildren
             .filter((node) => node.type === FUNCTION_DECLARATION), checkableFunctions = Array.from(this.suits.values())
             .flatMap((suite) => suite.functions);
         const checkableFunctionsMap = new Map(checkableFunctions.map((func) => [func.name, func])),
@@ -629,8 +658,12 @@ export const activate = (context: vscode.ExtensionContext) => {
             const counterExample = await func.searcher.search(checkedEnv, checkedFunc as RecursiveFunctionNode);
             if (counterExample) {
                 finalState = "counter-example";
-                vscode.window.showWarningMessage(`Counter-example found for ${func.name}: ${counterExample}`);
+                vscode.window.showWarningMessage(`Counter-example found for ${func.name}!`);
                 func.counterExample = counterExample;
+
+                const url = vscode.Uri.parse(`smlbuddy://counter-example/${func.name}`);
+                await smlBuddyContext.updateVirtualDocument(url);
+                await vscode.commands.executeCommand('vscode.open', url);
                 return;
             }
             vscode.window.showInformationMessage(`No counter-example found for ${func.name}`);
@@ -661,7 +694,7 @@ export const activate = (context: vscode.ExtensionContext) => {
             return;
         }
         try {
-            await vscode.env.clipboard.writeText(func.counterExample!);
+            await vscode.env.clipboard.writeText(func.counterExample!.input);
             vscode.window.showInformationMessage('Copied to clipboard!');
         } catch (err) {
             vscode.window.showErrorMessage('Failed to copy to clipboard');
@@ -700,6 +733,9 @@ export const activate = (context: vscode.ExtensionContext) => {
     const treeView = vscode.window.createTreeView("smlbuddyView", {
         treeDataProvider: smlBuddyContext
     });
+
+    const counterExampleProvider = vscode.workspace.registerTextDocumentContentProvider("smlbuddy", smlBuddyContext);
+
     context.subscriptions.push(loadConfigFileCommand);
     context.subscriptions.push(loadConfigLinkCommand);
     context.subscriptions.push(searchCounterExampleCommand);
@@ -712,6 +748,7 @@ export const activate = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(textChangedHook);
 
     context.subscriptions.push(treeView);
+    context.subscriptions.push(counterExampleProvider);
 
     smlBuddyContext.loadPersistentConfig().then(() => smlBuddyContext.initAllDocuments());
 };
