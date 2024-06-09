@@ -1,16 +1,26 @@
 {
   "name": "smlbuddy",
   "displayName": "SML Buddy",
-  "description": "",
-  "version": "0.0.1",
+  "description": "SML Buddy helps you to find logical bugs in your solutions.",
+  "version": "0.1.0",
+  "publisher": "whitomtit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Whitomtit/SML-Buddy"
+  },
+  "bugs": {
+    "url": "https://github.com/Whitomtit/SML-Buddy/issues"
+  },
+  "activationEvents": [
+    "onLanguage:sml"
+  ],
+  "qna": false,
+  "icon": "resources/logo.png",
   "engines": {
     "vscode": "^1.89.0"
   },
   "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onLanguage:sml"
+    "Programming Languages"
   ],
   "main": "./dist/extension.js",
   "extensionDependencies": [
