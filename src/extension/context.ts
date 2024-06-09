@@ -1,5 +1,4 @@
-import * as vscode from 'vscode';
-import {
+import vscode, {
     DecorationOptions,
     ProviderResult,
     Range,
@@ -8,56 +7,26 @@ import {
     TextDocumentContentProvider,
     TreeItem,
     Uri
-} from 'vscode';
-import Parser from 'web-tree-sitter';
-import {Environment, parseProgram, SMLParser} from "./parsers/program";
-import {ConfigurationError, ExecutorError, NotImplementedError, TimeoutError} from "./models/errors";
-import {CounterExampleSearcher} from "./engine/counterExampleSearcher";
-import {RecursiveFunctionNode} from "./models/symbolic_nodes";
+} from "vscode";
+import {
+    Environment,
+    functionTypeConstructorName,
+    getFunctionName,
+    initLanguage,
+    parseProgram,
+    SMLParser
+} from "../parsers/program";
 import {FileDownloader, getApi} from "@microsoft/vscode-file-downloader-api";
-import {FUNCTION_DECLARATION} from "./parsers/const";
+import Parser from "web-tree-sitter";
+import {ConfigurationError} from "../models/errors";
+import {FUNCTION_DECLARATION} from "../parsers/const";
+import {CounterExampleSearcher} from "../engine/counterExampleSearcher";
+import {RecursiveFunctionNode} from "../models/symbolic_nodes";
+import {CheckableFunction, isSerializedSuite, SerializedSuite, SMLBuddyTreeItem, Suite} from "./types";
 
 const CONFIG_LOADED_WHEN = "smlbuddy.configLoaded";
 
-interface SerializedSuite {
-    name: string,
-    program: string,
-    functionNames: string[]
-}
-
-const isSerializedSuite = (obj: any): obj is SerializedSuite => {
-    return obj.program && obj.functionNames && obj.name &&
-        typeof obj.program === 'string' && typeof obj.name === 'string' &&
-        Array.isArray(obj.functionNames) && obj.functionNames.every((name: any) => typeof name === 'string');
-};
-
-type CheckableFunctionState = "unverified" | "verifying" | "verified" | "timeout" | "counter-example" | "error";
-
-export type CounterExample = {
-    input: string,
-    output: string,
-    expectedOutput: string,
-}
-
-class CheckableFunction {
-    constructor(
-        readonly name: string,
-        readonly searcher: CounterExampleSearcher,
-        public state: CheckableFunctionState = "unverified",
-        public counterExample: CounterExample | null = null
-    ) {
-    }
-}
-
-class Suite {
-    constructor(
-        readonly name: string,
-        readonly functions: CheckableFunction[]
-    ) {
-    }
-}
-
-type SMLBuddyTreeItem = Suite | CheckableFunction;
+const asPoint = (pos: vscode.Position): Parser.Point => ({row: pos.line, column: pos.character});
 
 export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem>, TextDocumentContentProvider {
     readonly context: vscode.ExtensionContext;
@@ -90,21 +59,9 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
     private _onDidChange: vscode.EventEmitter<Uri> = new vscode.EventEmitter<Uri>();
     readonly onDidChange = this._onDidChange.event;
 
-    provideTextDocumentContent = (uri: Uri): ProviderResult<string> => {
-        const func = Array.from(this.suits.values()).flatMap((suite) => suite.functions).find((func) => func.name === uri.path.slice(1));
-        if (!func) {
-            return "Function not found";
-        }
-        if (!func.counterExample) {
-            return "No counter-example found";
-        }
-
-        return `Input:\n${func.counterExample.input}\n\nExpected output:\n${func.counterExample.expectedOutput}\n\nActual output:\n${func.counterExample.output}`;
-    };
-
-    constructor(context: vscode.ExtensionContext, parser: Promise<SMLParser>) {
+    constructor(context: vscode.ExtensionContext) {
         this.context = context;
-        this.parser = parser;
+        this.parser = initLanguage(context.asAbsolutePath('dist/sml.wasm'));
         this.suits = new Map<string, Suite>();
         this.fileDownloader = getApi();
         this.trees = new Map<string, Parser.Tree>();
@@ -170,23 +127,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         });
     }
 
-    private static functionTypeConstructorName = (functionName: string) => `${functionName}_type___`;
-
-    private static asPoint = (pos: vscode.Position): Parser.Point => ({row: pos.line, column: pos.character});
-
-    private static getFunctionName = (node: Parser.SyntaxNode) => {
-        return node.children[1]?.firstChild?.firstChild?.text;
-    };
-
-    animate = async () => {
-        this.currentFrame = (this.currentFrame + 1) % 2;
-        if (this.currentlyChecking === 0) {
-            return
-        }
-        vscode.window.visibleTextEditors.forEach((editor) => {
-            this.gutterUpdate(editor.document);
-        })
-    }
+    // Configuration management
 
     setWorkspaceConfigLoaded = async (value: boolean) => {
         await vscode.commands.executeCommand("setContext", CONFIG_LOADED_WHEN, value);
@@ -212,6 +153,13 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         } finally {
             await this.setWorkspaceConfigLoaded(true);
         }
+    };
+
+    getPersistentConfigPath = () => {
+        if (this.context.storageUri === undefined) {
+            return undefined;
+        }
+        return vscode.Uri.joinPath(this.context.storageUri, "suites.smlbuddy");
     };
 
     addConfigurationByLink = async (uri: Uri) => {
@@ -255,13 +203,6 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         }
         await this.setWorkspaceConfigLoaded(true);
         await this.refresh();
-    };
-
-    getPersistentConfigPath = () => {
-        if (this.context.storageUri === undefined) {
-            return undefined;
-        }
-        return vscode.Uri.joinPath(this.context.storageUri, "suites.smlbuddy");
     };
 
     removeSuite = async (suite: Suite) => {
@@ -353,6 +294,8 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         };
     };
 
+    // TreeDataProvider implementation
+
     refresh = (document?: TextDocument): void => {
         this._onDidChangeTreeData.fire();
         if (document) {
@@ -360,8 +303,28 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         }
     };
 
+    provideTextDocumentContent = (uri: Uri): ProviderResult<string> => {
+        const func = Array.from(this.suits.values()).flatMap((suite) => suite.functions).find((func) => func.name === uri.path.slice(1));
+        if (!func) {
+            return "Function not found";
+        }
+        if (!func.counterExample) {
+            return "No counter-example found";
+        }
+
+        return `Input:\n${func.counterExample.input}\n\nExpected output:\n${func.counterExample.expectedOutput}\n\nActual output:\n${func.counterExample.output}`;
+    };
+
     updateVirtualDocument = async (uri: Uri) => {
         this._onDidChange.fire(uri);
+    }
+
+    // TextDocumentContentProvider implementation
+
+    async initAllDocuments() {
+        await Promise.all(
+            vscode.window.visibleTextEditors.map(async (editor) => this.initDocument(editor.document))
+        );
     }
 
     initDocument = async (document: TextDocument) => {
@@ -374,11 +337,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         await this.gutterUpdate(document);
     };
 
-    async initAllDocuments() {
-        await Promise.all(
-            vscode.window.visibleTextEditors.map(async (editor) => this.initDocument(editor.document))
-        );
-    }
+    // Document event handlers
 
     updateDocument = async (document: TextDocument, contentChanges: readonly TextDocumentContentChangeEvent[]) => {
         if (contentChanges.length !== 0) {
@@ -393,9 +352,9 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
                 const startPos = document.positionAt(startIndex);
                 const oldEndPos = document.positionAt(oldEndIndex);
                 const newEndPos = document.positionAt(newEndIndex);
-                const startPosition = SMLBuddyContext.asPoint(startPos);
-                const oldEndPosition = SMLBuddyContext.asPoint(oldEndPos);
-                const newEndPosition = SMLBuddyContext.asPoint(newEndPos);
+                const startPosition = asPoint(startPos);
+                const oldEndPosition = asPoint(oldEndPos);
+                const newEndPosition = asPoint(newEndPos);
                 const delta = {startIndex, oldEndIndex, newEndIndex, startPosition, oldEndPosition, newEndPosition};
                 old_tree.edit(delta);
             }
@@ -429,7 +388,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
 
 
         functionNodes.forEach((node) => {
-            const funcName = SMLBuddyContext.getFunctionName(node);
+            const funcName = getFunctionName(node);
             if (!funcName) {
                 return;
             }
@@ -532,6 +491,16 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         editor.setDecorations(this.counterExampleDecorationTrailer, counterExampleTrailer);
     };
 
+    animate = async () => {
+        this.currentFrame = (this.currentFrame + 1) % 2;
+        if (this.currentlyChecking === 0) {
+            return
+        }
+        vscode.window.visibleTextEditors.forEach((editor) => {
+            this.gutterUpdate(editor.document);
+        })
+    }
+
     private _loadConfigurationFile = async (uri: Uri) => {
         const rawData = await vscode.workspace.fs.readFile(uri);
         const data = Buffer.from(rawData).toString('utf-8');
@@ -563,7 +532,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             if (!node) {
                 throw new ConfigurationError(`Function ${name} not found in the configuration file`);
             }
-            const type = suiteEnv.constructors.get(SMLBuddyContext.functionTypeConstructorName(name));
+            const type = suiteEnv.constructors.get(functionTypeConstructorName(name));
             if (!type) {
                 throw new ConfigurationError(`Type for function ${name} not found in the configuration file`);
             }
@@ -572,186 +541,4 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
         this.suits.set(config.name, new Suite(config.name, functions));
         this.refresh();
     };
-}
-
-const initLanguage = async (context: vscode.ExtensionContext): Promise<SMLParser> => {
-    const wasmPath = context.asAbsolutePath('dist/sml.wasm');
-
-    await Parser.init();
-    const parser = new Parser();
-
-    const lang = await Parser.Language.load(wasmPath);
-    parser.setLanguage(lang);
-    return parser as SMLParser;
-};
-
-export const activate = (context: vscode.ExtensionContext) => {
-    const smlParser = initLanguage(context);
-    const smlBuddyContext = new SMLBuddyContext(context, smlParser);
-
-    const loadConfigFileCommand = vscode.commands.registerCommand('smlbuddy.loadConfigFile', async () => {
-        const userFileChoice = await vscode.window.showOpenDialog({
-            canSelectMany: false,
-            filters: {
-                'Config file': ["smlbuddy"]
-            },
-            title: "Choose configuration file"
-        });
-        if (!userFileChoice) {
-            return;
-        }
-        const configFilePath = userFileChoice[0];
-        await smlBuddyContext.addConfiguration(configFilePath);
-    });
-
-    const loadConfigLinkCommand = vscode.commands.registerCommand('smlbuddy.loadConfigLink', async () => {
-        const userLinkChoice = await vscode.window.showInputBox({
-            prompt: "Enter the link to the configuration file",
-            placeHolder: "https://example.com/suites.smlbuddy",
-            validateInput: (value: string) => {
-                if (!value.trim()) {
-                    return 'URL cannot be empty';
-                }
-
-                try {
-                    // Attempt to create a URL object from the input
-                    vscode.Uri.parse(value, true);
-                } catch (error) {
-                    return 'Please enter a valid URL';
-                }
-                // No validation errors
-                return undefined;
-            }
-        });
-        if (!userLinkChoice) {
-            return;
-        }
-        const uri = vscode.Uri.parse(userLinkChoice, true);
-        await smlBuddyContext.addConfigurationByLink(uri);
-    });
-
-    const searchCounterExampleCommand = vscode.commands.registerCommand('smlbuddy.searchCounterExample', async (func?: CheckableFunction): Promise<void> => {
-        if (!func) {
-            return;
-        }
-        func.counterExample = null;
-        if (!vscode.window.activeTextEditor) {
-            await vscode.window.showErrorMessage("Open a file with the function definition first");
-            return;
-        }
-        const checkedCode = vscode.window.activeTextEditor.document.getText();
-        func.state = "verifying";
-        smlBuddyContext.refresh(vscode.window.activeTextEditor.document);
-
-        let finalState: CheckableFunctionState = "unverified";
-        smlBuddyContext.currentlyChecking++;
-        try {
-            const parser = await smlParser;
-            const checkedEnv = parseProgram(parser, checkedCode);
-            const checkedFunc = checkedEnv.bindings.get(func.name);
-            if (!checkedFunc) {
-                finalState = "error";
-                vscode.window.showErrorMessage(`Function ${func.name} not found in the code`);
-                return;
-            }
-            vscode.window.showInformationMessage(`Searching counter-example for ${func.name}`);
-            const counterExample = await func.searcher.search(checkedEnv, checkedFunc as RecursiveFunctionNode);
-            if (counterExample) {
-                finalState = "counter-example";
-                vscode.window.showWarningMessage(`Counter-example found for ${func.name}!`);
-                func.counterExample = counterExample;
-
-                const url = vscode.Uri.parse(`smlbuddy://counter-example/${func.name}`);
-                await smlBuddyContext.updateVirtualDocument(url);
-                await vscode.commands.executeCommand('vscode.open', url);
-                return;
-            }
-            vscode.window.showInformationMessage(`No counter-example found for ${func.name}`);
-            finalState = "verified";
-        } catch (e) {
-            if (e instanceof TypeError || e instanceof ExecutorError) {
-                finalState = "error";
-                vscode.window.showErrorMessage(`Unexpected error occurred. Are you sure the program compiles and ${func.name} has the right type?`);
-            } else if (e instanceof NotImplementedError) {
-                finalState = "error";
-                vscode.window.showErrorMessage(`You're trying to use a feature that is not implemented yet`);
-            } else {
-                finalState = "timeout";
-                vscode.window.showInformationMessage(`No counter-example found for ${func.name}`);
-                if (!(e instanceof TimeoutError)) {
-                    throw e;
-                }
-            }
-        } finally {
-            func.state = finalState;
-            smlBuddyContext.currentlyChecking--;
-            smlBuddyContext.refresh(vscode.window.activeTextEditor.document);
-        }
-    });
-
-    const copyCounterExampleCommand = vscode.commands.registerCommand('smlbuddy.copyCounterExample', async (func?: CheckableFunction) => {
-        if (!func || func.state !== "counter-example") {
-            return;
-        }
-        try {
-            await vscode.env.clipboard.writeText(func.counterExample!.input);
-            vscode.window.showInformationMessage('Copied to clipboard!');
-        } catch (err) {
-            vscode.window.showErrorMessage('Failed to copy to clipboard');
-        }
-    });
-
-    const deleteSuiteCommand = vscode.commands.registerCommand('smlbuddy.deleteSuite', async (suite?: Suite) => {
-        if (!suite) {
-            return;
-        }
-        await smlBuddyContext.removeSuite(suite);
-    });
-
-    const workspaceChangedHook = vscode.workspace.onDidChangeWorkspaceFolders(async () => {
-        await smlBuddyContext.loadPersistentConfig();
-    });
-
-    const visibleTextEditorsChangeHook = vscode.window.onDidChangeVisibleTextEditors(async () => {
-        await smlBuddyContext.initAllDocuments();
-    });
-
-    const textChangedHook = vscode.workspace.onDidChangeTextDocument(async (edit: vscode.TextDocumentChangeEvent) => {
-        if (edit.document.languageId !== "sml") {
-            return;
-        }
-        await smlBuddyContext.updateDocument(edit.document, edit.contentChanges);
-    });
-
-    const documentClosedHook = vscode.workspace.onDidCloseTextDocument(async (doc: vscode.TextDocument) => {
-        if (doc.languageId !== "sml") {
-            return;
-        }
-        smlBuddyContext.removeDocument(doc);
-    });
-
-    const treeView = vscode.window.createTreeView("smlbuddyView", {
-        treeDataProvider: smlBuddyContext
-    });
-
-    const counterExampleProvider = vscode.workspace.registerTextDocumentContentProvider("smlbuddy", smlBuddyContext);
-
-    context.subscriptions.push(loadConfigFileCommand);
-    context.subscriptions.push(loadConfigLinkCommand);
-    context.subscriptions.push(searchCounterExampleCommand);
-    context.subscriptions.push(copyCounterExampleCommand);
-    context.subscriptions.push(deleteSuiteCommand);
-
-    context.subscriptions.push(workspaceChangedHook);
-    context.subscriptions.push(visibleTextEditorsChangeHook);
-    context.subscriptions.push(documentClosedHook);
-    context.subscriptions.push(textChangedHook);
-
-    context.subscriptions.push(treeView);
-    context.subscriptions.push(counterExampleProvider);
-
-    smlBuddyContext.loadPersistentConfig().then(() => smlBuddyContext.initAllDocuments());
-};
-
-export function deactivate() {
 }

@@ -65,17 +65,17 @@ export const parseExpression = (node: Parser.SyntaxNode, constructors: Construct
         case TUPLE_UNIT_EXPRESSION:
         case TUPLE_EXPRESSION:
             const subExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
-            return new ConstructorNode(subExpressions, getTupleConstructorName(subExpressions.length))
+            return ConstructorNode.create(subExpressions, getTupleConstructorName(subExpressions.length))
         case SEQUENCE_EXPRESSION:
             const seqExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
             return createSequenceExpression(seqExpressions)
         case LIST_EXPRESSION:
             const listExpressions = node.children.filter(isExpression).map((child) => parseExpression(child, constructors, infixData))
             return listExpressions.reduceRight(
-                (acc, expr) => new ConstructorNode(
-                    [new ConstructorNode([expr, acc], getTupleConstructorName(2))],
+                (acc, expr) => ConstructorNode.create(
+                    [ConstructorNode.create([expr, acc], getTupleConstructorName(2))],
                     LIST_CONSTRUCTOR_NAME),
-                new ConstructorNode([], LIST_NIL_NAME))
+                ConstructorNode.create([], LIST_NIL_NAME))
         case CONSTRAINT_EXPRESSION:
             return parseExpression(node.firstChild!, constructors, infixData)
         case FN_EXPRESSION:

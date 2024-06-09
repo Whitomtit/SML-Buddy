@@ -6,3 +6,4 @@ fun mirror t =
     Empty => Empty
   | Node (n, l, r) => Node (n, mirror r, mirror l)
 
+datatype CONFIG = mirror_type___ of btree

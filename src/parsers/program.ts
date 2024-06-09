@@ -206,3 +206,16 @@ export interface SMLParser {
 
     setLogger(logFunc: Parser.Logger): void;
 }
+
+export const initLanguage = async (wasmPath: string): Promise<SMLParser> => {
+    await Parser.init();
+    const parser = new Parser();
+
+    const lang = await Parser.Language.load(wasmPath);
+    parser.setLanguage(lang);
+    return parser as SMLParser;
+};
+export const getFunctionName = (node: Parser.SyntaxNode) => {
+    return node.children[1]?.firstChild?.firstChild?.text;
+};
+export const functionTypeConstructorName = (functionName: string) => `${functionName}_type___`;

@@ -30,6 +30,3 @@ fun diff (e, x) =
       (case l of
          [] => raise (Failure "Invalid")
        | _ => SUM (map diff (l, x)))
-
-
-datatype CONFIG = diff_type___ of ae * string

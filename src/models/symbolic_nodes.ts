@@ -228,14 +228,19 @@ export class IdentifierNode extends SymbolicNode {
 
         // special case for constructors with no arguments
         if (constructor.argType instanceof TupleType && constructor.argType.elementTypes.length === 0) {
-            return new ConstructorNode([], this.name)
+            return ConstructorNode.create([], this.name)
         }
         return new BuiltInFunctionNode(
-            (args) => new ConstructorNode([args], this.name),
-            (context, argument, path) => argument.map((symBind) => ({
-                path: context.AndBool(symBind.path, (path)),
-                value: new ConstructorNode([symBind.value], this.name)
-            }))
+            (arg) => ConstructorNode.create([arg], this.name),
+            (context, argument, path) => argument.map((symBind) => {
+                if (symBind.value instanceof BottomNode) {
+                    return {path: context.AndBool(symBind.path, (path)), value: symBind.value}
+                }
+                return {
+                    path: context.AndBool(symBind.path, (path)),
+                    value: ConstructorNode.create([symBind.value], this.name)
+                }
+            })
         )
     }
 
@@ -281,7 +286,7 @@ export class ApplicationNode extends SymbolicNode {
             env.infixData,
             node => node.evaluate(env),
             (left, infix, right) => (<ApplicableNode><unknown>infix).apply(
-                new ConstructorNode([left, right], getTupleConstructorName(2))),
+                ConstructorNode.create([left, right], getTupleConstructorName(2))),
             (func, arg) => (<ApplicableNode><unknown>func).apply(arg)
         )
     }
@@ -293,7 +298,7 @@ export class ApplicationNode extends SymbolicNode {
         const applyInfix = (left: Summary<T>, infix: Summary<T>, right: Summary<T>): Summary<T> =>
             applyFunction(infix, product([left, right]).map(([l, r]) => ({
                 path: context.AndBool(l.path, r.path),
-                value: new ConstructorNode([l.value, r.value], getTupleConstructorName(2))
+                value: ConstructorNode.create([l.value, r.value], getTupleConstructorName(2))
             })))
         return this.baseEvaluate<Summary<T>>(
             env.infixData,
@@ -402,10 +407,18 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
     readonly args: SymbolicNode[];
     readonly name: string
 
-    constructor(args: SymbolicNode[], name: string) {
+    protected constructor(args: SymbolicNode[], name: string) {
         super();
         this.args = args
         this.name = name
+    }
+
+    static create(args: SymbolicNode[], name: string): ConstructorNode | BottomNode {
+        const bottom = args.find(arg => arg instanceof BottomNode)
+        if (bottom instanceof BottomNode) {
+            return bottom
+        }
+        return new ConstructorNode(args, name)
     }
 
     size(): number {
@@ -418,17 +431,22 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
     }
 
     evaluate(env: Environment): SymbolicNode {
-        return new ConstructorNode(this.args.map(arg => arg.evaluate(env)), this.name)
+        return ConstructorNode.create(this.args.map(arg => arg.evaluate(env)), this.name)
     }
 
     summarize<T extends string>(context: CustomContext<T>, env: SymEnvironment<T>, path: Bool<T>): Summary<T> {
         const summaries = this.args.map(arg => arg.summarize(context, env, path))
         return product(summaries).map((binds) => {
-            const args = binds.map(({value}) => value)
-            const combined_path =
-                binds.reduce((combined_path, {path}) =>
-                    context.AndBool(combined_path, path), context.Bool.val(true))
-            return {path: combined_path, value: new ConstructorNode(args, this.name)}
+            let combined_path = context.Bool.val(true)
+            const args: SymbolicNode[] = []
+            for (const {path, value} of binds) {
+                combined_path = context.AndBool(combined_path, path)
+                if (value instanceof BottomNode) {
+                    return {path: combined_path, value}
+                }
+                args.push(value)
+            }
+            return {path: combined_path, value: ConstructorNode.create(args, this.name)}
         })
     }
 
@@ -518,7 +536,7 @@ export class ConstructorNode extends SymbolicNode implements SymValuableNode, Va
     }
 
     concretize<T extends string>(model: Model<T>, context: CustomContext<T>): SymbolicNode {
-        return new ConstructorNode(this.args.map(arg => arg.concretize(model, context)), this.name)
+        return ConstructorNode.create(this.args.map(arg => arg.concretize(model, context)), this.name)
     }
 
     toSMLString(infixData: InfixData): string {
@@ -1345,11 +1363,11 @@ export class BottomNode extends SymbolicNode {
     }
 
     static matchException(): BottomNode {
-        return new BottomNode(new ConstructorNode([], "Match"))
+        return new BottomNode(ConstructorNode.create([], "Match"))
     }
 
     static deepLimitException(): BottomNode {
-        return new BottomNode(new ConstructorNode([], "---DeepLimit---"))
+        return new BottomNode(ConstructorNode.create([], "---DeepLimit---"))
     }
 
     evaluate(env: Environment): SymbolicNode {

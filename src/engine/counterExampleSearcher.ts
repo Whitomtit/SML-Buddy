@@ -7,9 +7,9 @@ import {createCustomContext} from "../models/context";
 import {init} from "z3-solver";
 import {Generator} from "./generator";
 import {TimeoutError} from "../models/errors";
-import {CounterExample} from "../extension";
+import {CounterExample} from "../extension/types";
 
-const DEFAULT_TIMEOUT = 60000
+export const DEFAULT_TIMEOUT = 60000
 
 export class CounterExampleSearcher {
     readonly targetFunction: string

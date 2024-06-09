@@ -34,7 +34,9 @@ export class Generator {
                 testCase.type.mergeWith(PrimitiveType.INT, substitution)
                 minHeap.push(IntegerSymbolNode.fromVarName(this.freshFormulaName()))
 
-                if (testCase.env.size === 0) return
+                if (testCase.env.size === 0) {
+                    return
+                }
 
                 // E-Binop
                 for (const op of BINARY_OPS) {
@@ -50,7 +52,9 @@ export class Generator {
                 testCase.type.mergeWith(PrimitiveType.STRING, substitution)
                 minHeap.push(StringSymbolNode.fromVarName(this.freshFormulaName()))
 
-                if (testCase.env.size === 0) return
+                if (testCase.env.size === 0) {
+                    return
+                }
 
                 // E-Concat
                 minHeap.push(new ApplicationNode([
@@ -65,7 +69,7 @@ export class Generator {
                     const freshType = consType.clone(new Map())
                     testCase.type.mergeWith(freshType.returnType, substitution)
 
-                    minHeap.push(new ConstructorNode([new HoleNode(freshType.argType, testCase.env, substitution)], consName))
+                    minHeap.push(ConstructorNode.create([new HoleNode(freshType.argType, testCase.env, substitution)], consName))
                 }, testCase)
             }
 
@@ -73,7 +77,7 @@ export class Generator {
             const currentType = substitute(testCase.type, testCase.substitution)
             if (currentType instanceof TupleType) {
                 const args = currentType.elementTypes.map((type) => new HoleNode(type, testCase.env, new Map(testCase.substitution)))
-                minHeap.push(new ConstructorNode(args, getTupleConstructorName(args.length)))
+                minHeap.push(ConstructorNode.create(args, getTupleConstructorName(args.length)))
             }
 
             // E-Fun
@@ -110,13 +114,14 @@ export class Generator {
             }
         } else if (testCase instanceof ConstructorNode) {
             for (let i = 0; i < testCase.args.length; i++) {
-                if (testCase.args[i].holesNumber() === 0)
+                if (testCase.args[i].holesNumber() === 0) {
                     continue
+                }
                 this.generate(testCase.args[i], new Interception(minHeap,
                     (node) => {
                         const newArgs = [...testCase.args]
                         newArgs[i] = node
-                        return new ConstructorNode(newArgs, testCase.name)
+                        return ConstructorNode.create(newArgs, testCase.name)
 
                     }))
                 break
@@ -153,7 +158,9 @@ const tryMerge = (f: (substitution: Map<PolymorphicType, Type>) => void, hole: H
     try {
         f(new Map(hole.substitution))
     } catch (error) {
-        if (error instanceof MergeError) return
+        if (error instanceof MergeError) {
+            return
+        }
         throw error
     }
 }
