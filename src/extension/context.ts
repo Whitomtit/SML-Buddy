@@ -178,9 +178,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             throw e;
         }
 
-        if (!await vscode.workspace.fs.stat(uri).then(() => true, () => false)) {
-            await vscode.workspace.fs.copy(uri, this.getPersistentConfigPath()!);
-        } else {
+        if (await vscode.workspace.fs.stat(this.getPersistentConfigPath()!).then(() => true, () => false)) {
             // need to merge two files
             const newConfigRaw = await vscode.workspace.fs.readFile(uri);
             const oldConfigRaw = await vscode.workspace.fs.readFile(this.getPersistentConfigPath()!);
@@ -200,6 +198,8 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
                 }
             }
             await vscode.workspace.fs.writeFile(this.getPersistentConfigPath()!, Buffer.from(JSON.stringify(mergedConfig)));
+        } else {
+            await vscode.workspace.fs.copy(uri, this.getPersistentConfigPath()!);
         }
         await this.setWorkspaceConfigLoaded(true);
         await this.refresh();
