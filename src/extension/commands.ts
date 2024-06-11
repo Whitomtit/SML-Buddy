@@ -104,7 +104,7 @@ export function getSearchCounterExampleCommand(smlBuddyContext: SMLBuddyContext)
         } finally {
             func.state = finalState;
             smlBuddyContext.currentlyChecking--;
-            smlBuddyContext.refresh(vscode.window.activeTextEditor.document);
+            smlBuddyContext.refresh(vscode.window.activeTextEditor?.document);
         }
     });
 }

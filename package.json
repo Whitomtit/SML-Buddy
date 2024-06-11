@@ -2,7 +2,7 @@
   "name": "smlbuddy",
   "displayName": "SML Buddy",
   "description": "SML Buddy helps you to find logical bugs in your solutions.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "whitomtit",
   "repository": {
     "type": "git",
