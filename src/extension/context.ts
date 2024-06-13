@@ -202,6 +202,7 @@ export class SMLBuddyContext implements vscode.TreeDataProvider<SMLBuddyTreeItem
             await vscode.workspace.fs.copy(uri, this.getPersistentConfigPath()!);
         }
         await this.setWorkspaceConfigLoaded(true);
+        await this.initAllDocuments();
         await this.refresh();
     };
 
